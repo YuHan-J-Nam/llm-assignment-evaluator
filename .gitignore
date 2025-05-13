@@ -1,0 +1,32 @@
+# Ignore logs directory
+logs/
+
+# Ignore test directory
+test/
+
+# Ignore Python cache directories
+__pycache__/
+*/__pycache__/
+**/__pycache__/
+
+# Ignore environment variables file
+api_utils/.env
+
+# Python virtual environment
+venv/
+env/
+.venv/
+.env/
+
+# IDE files
+.idea/
+.vscode/
+
+# Python bytecode
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/ 
