@@ -33,4 +33,7 @@ build/
 
 # Ignore all data
 data/*
+rag_system/pdf_data/
 rag_system/pdf_data/*
+
+

@@ -160,7 +160,7 @@ def main():
         gemini_response = client.process_pdf_with_gemini(
             file_path = None,
             prompt=prompt,
-            model_name="gemini-2.0-flash",
+            model_name="gemini-2.0-flash",  
             schema=custom_schema,
             system_instruction=system_instruction
         )
@@ -172,7 +172,7 @@ def main():
         claude_response = client.process_pdf_with_claude(
             file_path=None,
             prompt=prompt,
-            model_name="claude-3-sonnet-20240229",
+            model_name="claude-3-7-sonnet-20250219",
             schema=custom_schema,
             system_instruction=system_instruction
         )
@@ -201,7 +201,7 @@ def main():
         if save_result:
             for response_text, llm_name in zip([gemini_response_text, claude_response_text, openai_response_text], ["gemini", "claude", "openai"]):
                 if response_text:
-                    result_file = f"{os.path.splitext(os.path.basename(submission_file))[0]}_{llm_name}_평가결과2.json"
+                    result_file = f"{os.path.splitext(os.path.basename(submission_file))[0]}_{llm_name}_평가결과3.json"
                     with open(result_file, 'w', encoding='utf-8') as f:
                         f.write(response_text)
                     print(f"평가 결과가 {result_file}에 저장되었습니다.")

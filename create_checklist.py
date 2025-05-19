@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from dotenv import load_dotenv
 from llm_api_client import LLMAPIClient
 import logging
@@ -58,6 +59,12 @@ def main():
     # Path to a PDF file for testing
     pdf_path = None
     # pdf_path = "C:/Users/yuhan/Desktop/CSD_18기/베어러블/독후감 예시/서평_39개_pdf/7막 7장 그리고 그 후.pdf"
+
+    # Checklist 저장 경로 생성
+    checklist_path = "./checklists"
+    if not os.path.exists(checklist_path):
+        os.makedirs(checklist_path)
+    
     
     # Get user inputs for system instruction placeholders
     subject = input("과목을 입력하세요: ")
@@ -135,7 +142,8 @@ def main():
             schema=custom_schema,
             system_instruction=system_instruction
         )
-        print(f"Gemini Response: {gemini_response.text}")
+        gemini_response_text = gemini_response.text
+        print(f"Gemini Response: {gemini_response_text}")
         
         # Process with Claude
         print("\nProcessing with Claude...")
@@ -146,7 +154,8 @@ def main():
             # schema=custom_schema,
             system_instruction=system_instruction
         )
-        print(f"Claude Response: {claude_response.content[0].text}")
+        claude_response_text = claude_response.content[0].text
+        print(f"Claude Response: {claude_response_text}")
         
         # Process with OpenAI
         print("\nProcessing with OpenAI...")
@@ -157,8 +166,18 @@ def main():
             schema=custom_schema,
             system_instruction=system_instruction
         )
-        print(f"OpenAI Response: {openai_response.choices[0].message.content}")
+        openai_response_text = openai_response.choices[0].message.content
+        print(f"OpenAI Response: {openai_response_text}")
         
+        # Save the created checklists for each LLM
+        for response_text, llm_name in zip([gemini_response_text, claude_response_text, openai_response_text], ["gemini", "claude", "openai"]):
+            if response_text:
+                if input(f"\n{llm_name}로 생성된 체크리스트를 저장하시겠습니까? (y/n): ").lower() == 'y':
+                    result_file = f"{checklist_path}/{llm_name}_평가기준_{assessment_title}_시간_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                    with open(result_file, 'w', encoding='utf-8') as f:
+                        f.write(response_text)
+                    print(f"{llm_name} 생성 평가기준이 {result_file}에 저장되었습니다.")
+
         # Print token usage summary
         print("\nToken Usage Summary:")
         usage_summary = client.get_token_usage_summary()
