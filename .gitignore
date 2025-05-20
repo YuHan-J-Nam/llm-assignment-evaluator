@@ -11,6 +11,7 @@ __pycache__/
 
 # Ignore environment variables file
 api_utils/.env
+.env
 
 # Python virtual environment
 venv/
@@ -32,8 +33,10 @@ build/
 *.egg-info/ 
 
 # Ignore all data
-data/*
-rag_system/pdf_data/
-rag_system/pdf_data/*
+pdf_attachment/
+
+# Ignore all checklists and evaluations
+checklists/
+evaluations/
 
 
