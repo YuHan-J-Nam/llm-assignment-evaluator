@@ -32,8 +32,8 @@ dist/
 build/
 *.egg-info/ 
 
-# Ignore all data
-pdf_attachment/
+# Ignore all temporary files
+temp/
 
 # Ignore all checklists and evaluations
 checklists/
