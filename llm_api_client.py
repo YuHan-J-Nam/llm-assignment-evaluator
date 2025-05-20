@@ -25,7 +25,7 @@ class LLMAPIClient:
         self.logger.info("LLM API Client initialized")
     
     def process_pdf_with_gemini(self, file_path, prompt, model_name="gemini-2.0-flash", 
-                              temperature=0.1, top_p=0.95, max_tokens=2048, 
+                              temperature=0.1, top_p=0.95, max_tokens=4096, 
                               system_instruction=None, schema=None):
         """Retrieve a response from Gemini API"""
         try:
@@ -79,7 +79,7 @@ class LLMAPIClient:
             raise
     
     def process_pdf_with_claude(self, file_path, prompt, model_name="claude-3-sonnet-20240229", 
-                              temperature=0.2, max_tokens=2048, 
+                              temperature=0.2, max_tokens=4096, 
                               system_instruction=None, schema=None):
         """Process a PDF document with Claude API"""
         try:
@@ -129,7 +129,7 @@ class LLMAPIClient:
             raise
     
     def process_pdf_with_openai(self, file_path, prompt, model_name="gpt-4.1", 
-                              temperature=0.2, max_tokens=2048, 
+                              temperature=0.2, max_tokens=4096, 
                               system_instruction=None, schema=None):
         """Process a PDF document with OpenAI API"""
         try:

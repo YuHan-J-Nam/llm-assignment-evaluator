@@ -150,7 +150,7 @@ def main():
         claude_response = client.process_pdf_with_claude(
             file_path=pdf_path,
             prompt=prompt,
-            model_name="claude-3-sonnet-20240229",
+            model_name="claude-3-7-sonnet-20250219",
             # schema=custom_schema,
             system_instruction=system_instruction
         )

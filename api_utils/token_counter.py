@@ -12,14 +12,15 @@ class TokenCounter:
         
         # Token cost per 1K tokens (input/output) for reference
         self.token_costs = {
-            "gpt-3.5-turbo": {"input": 0.0005, "output": 0.0015},
-            "gpt-4": {"input": 0.03, "output": 0.06},
-            "gpt-4-turbo": {"input": 0.01, "output": 0.03},
-            "gpt-4.1": {"input": 0.01, "output": 0.03},
-            "claude-3-sonnet": {"input": 0.003, "output": 0.015},
-            "claude-3-opus": {"input": 0.015, "output": 0.075},
-            "gemini-1.0-pro": {"input": 0.00025, "output": 0.0005},
-            "gemini-2.0-flash": {"input": 0.0005, "output": 0.0015},
+            "o4-mini": {"input": 1.1, "output": 4.4},
+            "gpt-4.1": {"input": 2, "output": 8},
+            "gpt-4.1-mini": {"input": 0.4, "output": 1.6},
+            "claude-3-7-sonnet-20250219": {"input": 0.03, "output": 0.15},
+            "claude-3-5-haiku-20241022": {"input": 0.05, "output": 0.15},
+            "claude-3-opus-20240229": {"input": 0.015, "output": 0.075},
+            "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
+            "gemini-2.0-flash-lite": {"input": 0.075, "output": 0.30},
+            "gemini-2.5-flash-preview-04-17": {"input": 0.15, "output": 0.60},
         }
     
     def log_token_usage(self, model_name: str, prompt_tokens: int = 0, 
@@ -39,8 +40,8 @@ class TokenCounter:
         base_model = self._get_base_model_name(model_name)
         if base_model in self.token_costs:
             costs = self.token_costs[base_model]
-            input_cost = (usage_entry["prompt_tokens"] / 1000) * costs["input"]
-            output_cost = (usage_entry["completion_tokens"] / 1000) * costs["output"]
+            input_cost = (usage_entry["prompt_tokens"] / 1000000) * costs["input"]
+            output_cost = (usage_entry["completion_tokens"] / 1000000) * costs["output"]
             usage_entry["estimated_cost"] = input_cost + output_cost
         
         # Add to usage log
@@ -110,22 +111,7 @@ class TokenCounter:
     
     def _get_base_model_name(self, full_model_name: str) -> str:
         """Extract base model name for cost calculation"""
-        if "gpt-3.5" in full_model_name:
-            return "gpt-3.5-turbo"
-        elif "gpt-4-turbo" in full_model_name or "gpt-4.1" in full_model_name:
-            return "gpt-4-turbo"
-        elif "gpt-4" in full_model_name:
-            return "gpt-4"
-        elif "claude-3-sonnet" in full_model_name:
-            return "claude-3-sonnet"
-        elif "claude-3-opus" in full_model_name:
-            return "claude-3-opus"
-        elif "gemini-1.0-pro" in full_model_name:
-            return "gemini-1.0-pro"
-        elif "gemini-2.0-flash" in full_model_name:
-            return "gemini-2.0-flash"
-        else:
-            return full_model_name
+        return full_model_name
     
     def get_usage_summary(self) -> Dict[str, Any]:
         """Get a summary of token usage across all requests"""

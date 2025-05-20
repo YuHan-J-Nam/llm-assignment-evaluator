@@ -1,5 +1,7 @@
 import os
 import json
+import re
+from datetime import datetime
 from dotenv import load_dotenv
 from llm_api_client import LLMAPIClient
 import logging
@@ -61,6 +63,11 @@ def main():
     
     # Choose evaluation criteria
     criteria = 논술형_checklist
+
+    # Define evaluation directory
+    evaluation_dir = "./evaluations"
+    if not os.path.exists(evaluation_dir):
+        os.makedirs(evaluation_dir)
         
     # Get student submission file
     submission_file = input("학생 제출물 파일 경로를 입력하세요: ")
@@ -156,40 +163,45 @@ def main():
         print(prompt)
         
         # Process with Gemini
-        print("\nProcessing with Gemini...")
-        gemini_response = client.process_pdf_with_gemini(
-            file_path = None,
-            prompt=prompt,
-            model_name="gemini-2.0-flash",  
-            schema=custom_schema,
-            system_instruction=system_instruction
-        )
-        gemini_response_text = gemini_response.text
-        print(f"Gemini Response: {gemini_response_text}")
+        # print("\nProcessing with Gemini...")
+        # gemini_response = client.process_pdf_with_gemini(
+        #     file_path = None,
+        #     prompt=prompt,
+        #     model_name="gemini-2.0-flash",  
+        #     schema=custom_schema,
+        #     system_instruction=system_instruction
+        # )
+        # gemini_response_text = gemini_response.text
+        # print(f"Gemini Response: {gemini_response_text}")
         
         # Process with Claude
         print("\nProcessing with Claude...")
         claude_response = client.process_pdf_with_claude(
             file_path=None,
             prompt=prompt,
-            model_name="claude-3-7-sonnet-20250219",
+            model_name="claude-3-opus-20240229",
             schema=custom_schema,
             system_instruction=system_instruction
         )
         claude_response_text = claude_response.content[0].text
+
+        # ```json과 ```` 사이에 있는 텍스트만 추출 (특정 모델에선 json 형식으로 반환되지 않음)
+        if "```json" in claude_response_text:
+            claude_response_text = re.search(r'```json\s*(.*?)\s*```', claude_response_text, re.DOTALL).group(1)
+
         print(f"Claude Response: {claude_response_text}")
 
         # Process with OpenAI
-        print("\nProcessing with OpenAI...")
-        openai_response = client.process_pdf_with_openai(
-            file_path=None,
-            prompt=prompt,
-            model_name="gpt-4.1",
-            schema=custom_schema,
-            system_instruction=system_instruction
-        ) 
-        openai_response_text = openai_response.choices[0].message.content
-        print(f"OpenAI Response: {openai_response_text}")
+        # print("\nProcessing with OpenAI...")
+        # openai_response = client.process_pdf_with_openai(
+        #     file_path=None,
+        #     prompt=prompt,
+        #     model_name="gpt-4.1",
+        #     schema=custom_schema,
+        #     system_instruction=system_instruction
+        # ) 
+        # openai_response_text = openai_response.choices[0].message.content
+        # print(f"OpenAI Response: {openai_response_text}")
         
         # Print token usage summary
         print("\nToken Usage Summary:")
@@ -201,7 +213,7 @@ def main():
         if save_result:
             for response_text, llm_name in zip([gemini_response_text, claude_response_text, openai_response_text], ["gemini", "claude", "openai"]):
                 if response_text:
-                    result_file = f"{os.path.splitext(os.path.basename(submission_file))[0]}_{llm_name}_평가결과3.json"
+                    result_file = f"{evaluation_dir}/{llm_name}_평가결과_{assessment_title}_시간_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
                     with open(result_file, 'w', encoding='utf-8') as f:
                         f.write(response_text)
                     print(f"평가 결과가 {result_file}에 저장되었습니다.")
