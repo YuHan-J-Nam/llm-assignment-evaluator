@@ -90,6 +90,12 @@ class OpenAIAPI:
             # If schema is provided, add it to the request
             if schema:
                 params["response_format"] = schema
+
+            # Special case for model o4-mini
+            if model_name == "o4-mini":
+                params.pop("max_tokens", None)  # Remove max_tokens from params
+                params["max_completion_tokens"] = max_tokens
+                params['temperature'] = 1
                 
             # Send request to OpenAI API
             response = self.client.chat.completions.create(**params)

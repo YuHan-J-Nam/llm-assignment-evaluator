@@ -175,33 +175,34 @@ def main():
         # print(f"Gemini Response: {gemini_response_text}")
         
         # Process with Claude
-        print("\nProcessing with Claude...")
-        claude_response = client.process_pdf_with_claude(
-            file_path=None,
-            prompt=prompt,
-            model_name="claude-3-opus-20240229",
-            schema=custom_schema,
-            system_instruction=system_instruction
-        )
-        claude_response_text = claude_response.content[0].text
-
-        # ```json과 ```` 사이에 있는 텍스트만 추출 (특정 모델에선 json 형식으로 반환되지 않음)
-        if "```json" in claude_response_text:
-            claude_response_text = re.search(r'```json\s*(.*?)\s*```', claude_response_text, re.DOTALL).group(1)
-
-        print(f"Claude Response: {claude_response_text}")
-
-        # Process with OpenAI
-        # print("\nProcessing with OpenAI...")
-        # openai_response = client.process_pdf_with_openai(
+        # print("\nProcessing with Claude...")
+        # claude_response = client.process_pdf_with_claude(
         #     file_path=None,
         #     prompt=prompt,
-        #     model_name="gpt-4.1",
+        #     model_name="claude-3-opus-20240229",
         #     schema=custom_schema,
         #     system_instruction=system_instruction
-        # ) 
-        # openai_response_text = openai_response.choices[0].message.content
-        # print(f"OpenAI Response: {openai_response_text}")
+        # )
+        # claude_response_text = claude_response.content[0].text
+
+        # # ```json과 ```` 사이에 있는 텍스트만 추출 (특정 모델에선 json 형식으로 반환되지 않음)
+        # if "```json" in claude_response_text:
+        #     claude_response_text = re.search(r'```json\s*(.*?)\s*```', claude_response_text, re.DOTALL).group(1)
+
+        # print(f"Claude Response: {claude_response_text}")
+
+        # Process with OpenAI
+        print("\nProcessing with OpenAI...")
+        openai_response = client.process_pdf_with_openai(
+            file_path=None,
+            prompt=prompt,
+            model_name="o4-mini",
+            schema=custom_schema,
+            system_instruction=system_instruction,
+            max_tokens=4096
+        ) 
+        openai_response_text = openai_response.choices[0].message.content
+        print(f"OpenAI Response: {openai_response_text}")
         
         # Print token usage summary
         print("\nToken Usage Summary:")
