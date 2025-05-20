@@ -9,6 +9,32 @@ from llm_api_client import LLMAPIClient
 import ipywidgets as widgets
 from IPython.display import display, HTML
 
+# Default template texts
+DEFAULT_SYSTEM_INSTRUCTION = """
+너는 선생님이다. 학생이 제출한 수행평가 과제에 대하여, 각 평가항목을 기반으로 논리적으로 평가하라. 
+학생의 점수와 왜 그 점수를 받았는지에 대해 서술하고, 가능하다면 학생이 작성한 과제중 관련 텍스트를 증거로 제시하라.
+
+수행평가에 대한 세부정보는 다음과 같다:
+
+학년: [학년]
+과목: [과목]
+수행평가 제목: [수행평가 제목]
+수행평가 유형: [수행평가 유형]
+수행평가 설명: [수행평가 설명]
+
+최종 평가내용을 JSON 형식으로 반환하라.
+"""
+
+DEFAULT_PROMPT = """
+다음은 학생이 제출한 수행평가 과제이다. 수행평가 과제에 대한 세부정보와 평가 기준을 고려하여, 각 평가항목에 대하여 논리적으로 평가하라.
+
+평가 기준은 다음과 같다:
+[평가 기준]
+
+학생의 수행평가 과제는 다음과 같다:
+[학생 제출물]
+"""
+
 class JupyterWidgetHandler(logging.Handler):
     """Custom logging handler for Jupyter widgets"""
     def __init__(self, output_widget):
@@ -25,18 +51,24 @@ class AssignmentEvaluationWidgets:
     
     def __init__(self):
         """Initialize all widgets and variables"""
+        # Create directories if they don't exist
+        for directory in ['./checklists', './evaluations', './temp']:
+            os.makedirs(directory, exist_ok=True)
+            
         # Load checklist files
         self.checklist_files = [f for f in os.listdir('./checklists') if f.endswith('.json')]
         
         # Setup logging
         self.log_output = widgets.Output(
-            layout=widgets.Layout(height='150px', overflow='auto', overflow_x='auto', border='1px solid gray')
+            layout=widgets.Layout(height='150px', overflow='auto', border='1px solid gray')
         )
+        self.log_output.add_class('scrollable')
         self.setup_logging()
         
         # Create all widgets
         self.create_info_widgets()
         self.create_submission_widgets()
+        self.create_template_widgets()
         self.create_model_selection_widgets()
         self.create_output_widgets()
         
@@ -46,6 +78,9 @@ class AssignmentEvaluationWidgets:
         
         # Define evaluation schema
         self.define_schema()
+        
+        # Initialize PDF file path
+        self.pdf_file_path = None
         
     def setup_logging(self):
         """Set up the logger with custom widget handler"""
@@ -86,7 +121,7 @@ class AssignmentEvaluationWidgets:
         )
         
         self.select_checklist_widget = widgets.Dropdown(
-            options=[checklist_name.replace('.json', '') for checklist_name in self.checklist_files],
+            options=[checklist_name.replace('.json', '') for checklist_name in self.checklist_files] if self.checklist_files else ['체크리스트 없음'],
             description='체크리스트:',
             layout=widgets.Layout(width='60%')
         )
@@ -102,6 +137,13 @@ class AssignmentEvaluationWidgets:
         # File upload widget
         self.file_upload = widgets.FileUpload(description="제출물 업로드:")
         
+        # PDF upload widget for API requests
+        self.pdf_upload = widgets.FileUpload(
+            description="PDF 업로드 (API용):",
+            accept=".pdf",
+            layout=widgets.Layout(width='300px')
+        )
+        
         # Submission text area
         self.submission_text = widgets.Textarea(
             description="제출물 내용:",
@@ -109,21 +151,108 @@ class AssignmentEvaluationWidgets:
             layout=widgets.Layout(width='80%', height='200px')
         )
         
-        # Add file upload handler
+        # Add file upload handlers
         self.file_upload.observe(self.process_uploaded_file, names='value')
+        self.pdf_upload.observe(self.process_uploaded_pdf, names='value')
     
     def process_uploaded_file(self, change):
         """Process uploaded file and update submission text"""
-        if self.file_upload.value:
+        if not self.file_upload.value:
+            return
+            
+        try:
             # Get uploaded file content
             uploaded_content = self.file_upload.value[0]['content']
             self.submission_text.value = io.BytesIO(uploaded_content).read().decode('utf-8')
             
-            # Extract file name
-            try:
-                self.file_name = self.file_upload.value[0]['name'][:-4]
-            except IndexError:
-                print("File name extraction error")
+            # Extract file name without extension
+            file_name = self.file_upload.value[0]['name']
+            self.file_name = os.path.splitext(file_name)[0]
+        except Exception as e:
+            print(f"파일 처리 중 오류: {str(e)}")
+    
+    def process_uploaded_pdf(self, change):
+        """Process uploaded PDF file for API requests"""
+        if not self.pdf_upload.value:
+            return
+            
+        try:
+            # Get uploaded file content
+            uploaded_file = list(self.pdf_upload.value.values())[0]
+            
+            # Create a temporary file path
+            temp_path = f"./temp/temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            with open(temp_path, 'wb') as f:
+                f.write(uploaded_file['content'])
+            
+            self.pdf_file_path = temp_path
+            self.logger.info(f"PDF uploaded and saved to {temp_path}")
+        except Exception as e:
+            self.logger.error(f"PDF 업로드 중 오류: {str(e)}")
+    
+    def create_template_widgets(self):
+        """Create widgets for system instruction and prompt templates"""
+        # Store template texts
+        self.system_instruction_template = DEFAULT_SYSTEM_INSTRUCTION
+        self.prompt_template = DEFAULT_PROMPT
+        
+        # Create text areas for editing
+        self.system_instruction_widget = widgets.Textarea(
+            description="시스템 지시:",
+            value=self.system_instruction_template,
+            layout=widgets.Layout(width='90%', height='300px')
+        )
+        
+        self.prompt_widget = widgets.Textarea(
+            description="프롬프트:",
+            value=self.prompt_template,
+            layout=widgets.Layout(width='90%', height='200px')
+        )
+
+        # Create update button
+        self.update_templates_button = widgets.Button(
+            description="인풋 적용",
+            button_style='info',
+            tooltip='입력된 정보로 템플릿을 업데이트합니다.'
+        )
+        self.update_templates_button.on_click(self.update_templates)
+    
+    def update_templates(self, b=None):
+        """Update templates when the update button is clicked"""
+        # Check if all required values are set
+        if not all([self.grade_widget.value, self.subject_widget.value, 
+                   self.assessment_type_widget.value, self.title_widget.value, 
+                   self.description_widget.value]):
+            print("모든 입력 필드를 채워주세요.")
+            return
+            
+        # Get current values
+        grade = self.grade_widget.value
+        subject = self.subject_widget.value
+        assessment_type = self.assessment_type_widget.value
+        assessment_title = self.title_widget.value
+        assessment_description = self.description_widget.value
+        
+        # Format system instruction
+        formatted_system = self.system_instruction_template
+        formatted_system = formatted_system.replace('[학년]', grade)
+        formatted_system = formatted_system.replace('[과목]', subject)
+        formatted_system = formatted_system.replace('[수행평가 제목]', assessment_title)
+        formatted_system = formatted_system.replace('[수행평가 유형]', assessment_type)
+        formatted_system = formatted_system.replace('[수행평가 설명]', assessment_description)
+        
+        # Format prompt
+        formatted_prompt = self.prompt_template
+        formatted_prompt = formatted_prompt.replace('[학년]', grade)
+        formatted_prompt = formatted_prompt.replace('[과목]', subject)
+        formatted_prompt = formatted_prompt.replace('[수행평가 제목]', assessment_title)
+        formatted_prompt = formatted_prompt.replace('[수행평가 유형]', assessment_type)
+        formatted_prompt = formatted_prompt.replace('[수행평가 설명]', assessment_description)
+        
+        # Update the widgets with formatted text
+        self.system_instruction_widget.value = formatted_system
+        self.prompt_widget.value = formatted_prompt
+        print("템플릿이 업데이트되었습니다.")
     
     def create_model_selection_widgets(self):
         """Create widgets for LLM model selection and parameters"""
@@ -160,7 +289,7 @@ class AssignmentEvaluationWidgets:
         
         # Create action buttons
         self.evaluate_button = widgets.Button(description="평가 시작")
-        self.visualize_button = widgets.Button(description="결과 시각화")
+        self.visualize_button = widgets.Button(description="평가 결과 출력")
         
         # Connect button events
         self.evaluate_button.on_click(self.run_evaluation)
@@ -181,7 +310,6 @@ class AssignmentEvaluationWidgets:
         self.output_area = widgets.Output()
         self.error_area = widgets.Output()
         self.visualization_output = widgets.Output()
-        # Add token usage output widget
         self.token_usage_output = widgets.Output()
     
     def define_schema(self):
@@ -242,34 +370,15 @@ class AssignmentEvaluationWidgets:
     
     def load_checklist(self, file_path):
         """Load checklist from JSON file"""
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    
-    def create_system_instruction(self, grade, subject, assessment_title, assessment_type, assessment_description):
-        """Generate formatted system instruction from user inputs"""
-        template = """
-        너는 선생님이다. 학생이 제출한 수행평가 과제에 대하여, 각 평가항목을 기반으로 논리적으로 평가하라. 
-        학생의 점수와 왜 그 점수를 받았는지에 대해 서술하고, 가능하다면 학생이 작성한 과제중 관련 텍스트를 증거로 제시하라.
-
-        수행평가에 대한 세부정보는 다음과 같다:
-
-        학년: [학년]
-        과목: [과목]
-        수행평가 제목: [수행평가 제목]
-        수행평가 유형: [수행평가 유형]
-        수행평가 설명: [수행평가 설명]
-
-        최종 평가내용을 JSON 형식으로 반환하라.
-        """
-        
-        # Replace placeholders with user inputs
-        formatted_instruction = template.replace('[학년]', grade)
-        formatted_instruction = formatted_instruction.replace('[과목]', subject)
-        formatted_instruction = formatted_instruction.replace('[수행평가 제목]', assessment_title)
-        formatted_instruction = formatted_instruction.replace('[수행평가 유형]', assessment_type)
-        formatted_instruction = formatted_instruction.replace('[수행평가 설명]', assessment_description)
-        
-        return formatted_instruction
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            self.logger.error(f"체크리스트 파일을 찾을 수 없습니다: {file_path}")
+            return {}
+        except json.JSONDecodeError:
+            self.logger.error(f"체크리스트 파일이 유효한 JSON 형식이 아닙니다: {file_path}")
+            return {}
     
     def run_evaluation(self, b):
         """Execute the evaluation process with selected models"""
@@ -277,17 +386,22 @@ class AssignmentEvaluationWidgets:
             self.output_area.clear_output()
             self.error_area.clear_output()
             
+            # Validate input data
+            if not self.select_checklist_widget.value or self.select_checklist_widget.value == '체크리스트 없음':
+                with self.error_area:
+                    print("오류: 체크리스트를 선택해주세요.")
+                return
+                
             # Load selected checklist
-            criteria = self.load_checklist('./checklists/' + self.select_checklist_widget.value + '.json')
-            
-            # Create evaluations directory if it doesn't exist
-            evaluation_dir = "./evaluations"
-            if not os.path.exists(evaluation_dir):
-                os.makedirs(evaluation_dir)
+            checklist_path = f'./checklists/{self.select_checklist_widget.value}.json'
+            criteria = self.load_checklist(checklist_path)
+            if not criteria:
+                with self.error_area:
+                    print(f"오류: 체크리스트를 로드할 수 없습니다: {checklist_path}")
+                return
             
             # Get student submission
             submission_content = self.submission_text.value
-            
             if not submission_content.strip():
                 with self.error_area:
                     print("오류: 학생 제출물이 비어있습니다.")
@@ -297,105 +411,90 @@ class AssignmentEvaluationWidgets:
             client = LLMAPIClient(log_level=logging.INFO)
             client.logger = self.logger
             
-            # Generate system instruction from user inputs
-            system_instruction = self.create_system_instruction(
-                self.grade_widget.value,
-                self.subject_widget.value,
-                self.title_widget.value,
-                self.assessment_type_widget.value,
-                self.description_widget.value
-            )
+            # Format the system instruction
+            grade = self.grade_widget.value
+            subject = self.subject_widget.value
+            assessment_title = self.title_widget.value
+            assessment_type = self.assessment_type_widget.value
+            assessment_description = self.description_widget.value
             
-            # Define prompt
-            prompt = f"""
-            다음은 학생이 제출한 수행평가 과제이다. 수행평가 과제에 대한 세부정보와 평가 기준을 고려하여, 각 평가항목에 대하여 논리적으로 평가하라.
+            system_instruction = self.system_instruction_widget.value
+            system_instruction = system_instruction.replace('[학년]', grade)
+            system_instruction = system_instruction.replace('[과목]', subject)
+            system_instruction = system_instruction.replace('[수행평가 제목]', assessment_title)
+            system_instruction = system_instruction.replace('[수행평가 유형]', assessment_type)
+            system_instruction = system_instruction.replace('[수행평가 설명]', assessment_description)
             
-            평가 기준은 다음과 같다:
-            {json.dumps(criteria, ensure_ascii=False, indent=2)}
-            
-            학생의 수행평가 과제는 다음과 같다:
-            {submission_content}
-            """
+            # Format the prompt
+            prompt = self.prompt_widget.value
+            prompt = prompt.replace('[평가 기준]', json.dumps(criteria, ensure_ascii=False, indent=2))
+            prompt = prompt.replace('[학생 제출물]', submission_content)
             
             print("System Instruction:")
             print(system_instruction)
             
             print("\n평가 중...") 
             
-            # Process with Gemini if selected
-            if self.gemini_model_selection.value != "None":
-                try:
-                    print("\nGemini로 처리 중...")
-                    gemini_response = client.process_pdf_with_gemini(
-                        file_path=None,
-                        prompt=prompt,
-                        model_name=self.gemini_model_selection.value,
-                        schema=self.custom_schema,
-                        system_instruction=system_instruction,
-                        temperature=self.gemini_params['temperature'].value,
-                        max_tokens=self.gemini_params['max_tokens'].value
-                    )
-                    gemini_response_text = gemini_response.text
-                    self.evaluation_results['Gemini'] = gemini_response_text
-                    print("Gemini 평가 완료")
-                    
-                    # Enable save button
-                    self.save_buttons['Gemini'].disabled = False
-                    
-                except Exception as e:
-                    with self.error_area:
-                        print(f"Gemini 처리 중 오류: {str(e)}")
+            # Get PDF file path if uploaded
+            pdf_path = self.pdf_file_path
             
-            # Process with Claude if selected
-            if self.claude_model_selection.value != "None":
-                try:
-                    print("\nClaude로 처리 중...")
-                    claude_response = client.process_pdf_with_claude(
-                        file_path=None,
-                        prompt=prompt,
-                        model_name=self.claude_model_selection.value,
-                        schema=self.custom_schema,
-                        system_instruction=system_instruction,
-                        temperature=self.claude_params['temperature'].value,
-                        max_tokens=self.claude_params['max_tokens'].value
-                    )
-                    claude_response_text = claude_response.content[0].text
-                    # Extract JSON content if wrapped in markdown code block
-                    if "```json" in claude_response_text:
-                        claude_response_text = re.search(r'```json\s*(.*?)\s*```', claude_response_text, re.DOTALL).group(1)
-                    self.evaluation_results['Claude'] = claude_response_text
-                    print("Claude 평가 완료")
-                    
-                    # Enable save button
-                    self.save_buttons['Claude'].disabled = False
-                    
-                except Exception as e:
-                    with self.error_area:
-                        print(f"Claude 처리 중 오류: {str(e)}")
+            # Process with selected models
+            models_to_process = {
+                'Gemini': self.gemini_model_selection.value if self.gemini_model_selection.value != "None" else None,
+                'Claude': self.claude_model_selection.value if self.claude_model_selection.value != "None" else None,
+                'OpenAI': self.openai_model_selection.value if self.openai_model_selection.value != "None" else None
+            }
             
-            # Process with OpenAI if selected
-            if self.openai_model_selection.value != "None":
+            params_map = {
+                'Gemini': self.gemini_params,
+                'Claude': self.claude_params,
+                'OpenAI': self.openai_params
+            }
+            
+            process_methods = {
+                'Gemini': client.process_pdf_with_gemini,
+                'Claude': client.process_pdf_with_claude,
+                'OpenAI': client.process_pdf_with_openai
+            }
+            
+            for model_name, model_value in models_to_process.items():
+                if not model_value:
+                    continue
+                    
                 try:
-                    print("\nOpenAI로 처리 중...")
-                    openai_response = client.process_pdf_with_openai(
-                        file_path=None,
+                    print(f"\n{model_name}로 처리 중...")
+                    params = params_map[model_name]
+                    
+                    response = process_methods[model_name](
+                        file_path=pdf_path,
                         prompt=prompt,
-                        model_name=self.openai_model_selection.value,
+                        model_name=model_value,
                         schema=self.custom_schema,
                         system_instruction=system_instruction,
-                        temperature=self.openai_params['temperature'].value,
-                        max_tokens=self.openai_params['max_tokens'].value
+                        temperature=params['temperature'].value,
+                        max_tokens=params['max_tokens'].value
                     )
-                    openai_response_text = openai_response.choices[0].message.content
-                    self.evaluation_results['OpenAI'] = openai_response_text
-                    print("OpenAI 평가 완료")
+                    
+                    # Extract response text based on model type
+                    if model_name == 'Gemini':
+                        response_text = response.text
+                    elif model_name == 'Claude':
+                        response_text = response.content[0].text
+                        # Extract JSON content if wrapped in markdown code block
+                        if "```json" in response_text:
+                            response_text = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL).group(1)
+                    else:  # OpenAI
+                        response_text = response.choices[0].message.content
+                    
+                    self.evaluation_results[model_name] = response_text
+                    print(f"{model_name} 평가 완료")
                     
                     # Enable save button
-                    self.save_buttons['OpenAI'].disabled = False
+                    self.save_buttons[model_name].disabled = False
                     
                 except Exception as e:
                     with self.error_area:
-                        print(f"OpenAI 처리 중 오류: {str(e)}")
+                        print(f"{model_name} 처리 중 오류: {str(e)}")
             
             # Display token usage summary
             usage_summary = client.get_token_usage_summary()
@@ -430,7 +529,7 @@ class AssignmentEvaluationWidgets:
         html += "</tr>"
         html += "</table>"
         
-        # Update token usage output widget instead of directly displaying
+        # Update token usage output widget
         with self.token_usage_output:
             self.token_usage_output.clear_output()
             display(HTML(html))
@@ -476,7 +575,15 @@ class AssignmentEvaluationWidgets:
                         html_output += f"<td>{subcategory.get('name', '')}</td>"
                         html_output += f"<td>{subcategory.get('score', '')}</td>"
                         html_output += f"<td>{subcategory.get('reason', '')}</td>"
-                        html_output += f"<td>{subcategory.get('evidence', '')}</td>"
+                        
+                        # Properly format evidence which can be an array
+                        evidence = subcategory.get('evidence', [])
+                        if isinstance(evidence, list):
+                            evidence_text = "<ul>" + "".join([f"<li>{item}</li>" for item in evidence]) + "</ul>"
+                        else:
+                            evidence_text = str(evidence)
+                        html_output += f"<td>{evidence_text}</td>"
+                        
                         html_output += "</tr>"
                 
                 html_output += "</table>"
@@ -486,13 +593,20 @@ class AssignmentEvaluationWidgets:
                 
             except json.JSONDecodeError:
                 print(f"{model_name} 결과를 파싱할 수 없습니다. 유효한 JSON 형식이 아닙니다.")
+                print("Response text:")
+                print(result_text[:500] + "..." if len(result_text) > 500 else result_text)
             except Exception as e:
-                print(f"{model_name} 결과 시각화 중 오류: {str(e)}")
+                print(f"{model_name} 평가 결과 출력 중 오류: {str(e)}")
     
     def save_result(self, model):
         """Create a closure for saving model results"""
         def on_click(b):
-            if model in self.evaluation_results:
+            if model not in self.evaluation_results:
+                print(f"{model} 평가 결과가 없습니다.")
+                return
+                
+            try:
+                model_used = None
                 if model == 'Gemini':
                     model_used = self.gemini_model_selection.value
                 elif model == 'Claude':
@@ -500,16 +614,18 @@ class AssignmentEvaluationWidgets:
                 elif model == 'OpenAI':
                     model_used = self.openai_model_selection.value
                 
-                # Create filename with timestamp
-                result_file = f"./evaluations/{model_used}_평가결과_{self.file_name}_시간_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                # Use a safe filename with timestamp
+                safe_filename = re.sub(r'[^\w\-_.]', '_', self.file_name) if self.file_name else 'unnamed'
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                result_file = f"./evaluations/{model_used}_평가결과_{safe_filename}_{timestamp}.json"
                 
                 # Save result to file
                 with open(result_file, 'w', encoding='utf-8') as f:
                     f.write(self.evaluation_results[model])
                 
                 print(f"{model} 평가 결과가 {result_file}에 저장되었습니다.")
-            else:
-                print(f"{model} 평가 결과가 없습니다.")
+            except Exception as e:
+                print(f"{model} 평가 결과 저장 중 오류: {str(e)}")
         return on_click
     
     def display_all_widgets(self):
@@ -522,10 +638,20 @@ class AssignmentEvaluationWidgets:
             self.grade_widget, self.subject_widget, self.title_widget,
             self.assessment_type_widget, self.select_checklist_widget, self.description_widget,
             self.file_upload, self.submission_text,
+            widgets.HTML("<h4>PDF 업로드 (API 요청용)</h4>"),
+            self.pdf_upload,
             self.output_area, self.error_area
         ])
         
-        # Tab 1: 모델 세팅
+        # Tab 1: 템플릿 편집
+        templates = widgets.VBox([
+            widgets.HTML("<h3>템플릿 편집</h3>"),
+            self.system_instruction_widget,
+            self.prompt_widget,
+            self.update_templates_button
+        ])
+        
+        # Tab 2: 모델 세팅
         model_settings = widgets.VBox([
             self.evaluate_button,
             widgets.HBox([
@@ -538,13 +664,13 @@ class AssignmentEvaluationWidgets:
             ])
         ])
         
-        # Tab 2: 결과 보기
+        # Tab 3: 결과 보기
         results_view = widgets.VBox([
             self.visualize_button,
             self.visualization_output
         ])
         
-        # Tab 3: 로그 확인 - Updated to include token usage output
+        # Tab 4: 로그 확인
         log_view = widgets.VBox([
             widgets.HTML("<h2>시스템 로그</h2>"),
             self.log_output,
@@ -553,13 +679,14 @@ class AssignmentEvaluationWidgets:
         ])
         
         # Set tab contents
-        tab_content.children = [content_input, model_settings, results_view, log_view]
+        tab_content.children = [content_input, templates, model_settings, results_view, log_view]
         
         # Set tab titles
         tab_content.set_title(0, "내용 입력")
-        tab_content.set_title(1, "모델 세팅")
-        tab_content.set_title(2, "결과 보기")
-        tab_content.set_title(3, "로그 확인")
+        tab_content.set_title(1, "템플릿 편집")
+        tab_content.set_title(2, "모델 세팅")
+        tab_content.set_title(3, "결과 보기")
+        tab_content.set_title(4, "로그 확인")
         
         # Display the tab widget
         display(tab_content)
