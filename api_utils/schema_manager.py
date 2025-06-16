@@ -10,43 +10,40 @@ class ResponseSchemaManager:
         self.default_schema = {
             "type": "object",
             "properties": {
-                "summary": {
+                "response": {
                     "type": "string",
-                    "description": "Summary of the content"
+                    "description": "The response text from the model"
                 },
-                "evaluation": {
-                    "type": "string",
-                    "description": "Evaluation of the content"
-                },
-                "suggestion": {
-                    "type": "string",
-                    "description": "Suggestions for improvement"
-                }
-            },
-            "required": ["summary", "evaluation", "suggestion"]
+            "required": ["response"]
+            }
         }
     
-    def get_gemini_schema(self, custom_schema=None):
+    def format_gemini_schema(self, custom_schema=None):
         """Get schema formatted for Gemini API"""
         schema = custom_schema if custom_schema else self.default_schema
         return schema
     
-    def get_claude_schema(self, custom_schema=None):
-        """Get schema formatted for Claude API"""
+    def format_anthropic_schema(self, custom_schema=None):
+        """Get schema formatted for Anthropic API"""
         schema = custom_schema if custom_schema else self.default_schema
-        # Claude might have specific formatting requirements
+        # Anthropic might have specific formatting requirements
         return schema
     
-    def get_openai_schema(self, custom_schema=None):
+    def format_openai_schema(self, custom_schema=None):
         """Get schema formatted for OpenAI API"""
         schema = custom_schema if custom_schema else self.default_schema
-            
+
+        # Set additional properties to enforce strict schema validation
+        if "additionalProperties" not in schema:
+            schema["additionalProperties"] = False
+
         # Create a properly formatted schema for OpenAI API
         return {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "OutputSchema",
-                "schema": schema
+            "format": {
+                "type": "json_schema",
+                "name": "response_schema",
+                "schema": schema,
+                "strict": True
             }
         }
     

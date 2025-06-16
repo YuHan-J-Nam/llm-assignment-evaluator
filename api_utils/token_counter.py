@@ -15,9 +15,9 @@ class TokenCounter:
             "o4-mini": {"input": 1.1, "output": 4.4},
             "gpt-4.1": {"input": 2, "output": 8},
             "gpt-4.1-mini": {"input": 0.4, "output": 1.6},
-            "claude-3-7-sonnet-20250219": {"input": 0.03, "output": 0.15},
-            "claude-3-5-haiku-20241022": {"input": 0.05, "output": 0.15},
-            "claude-3-opus-20240229": {"input": 0.015, "output": 0.075},
+            "claude-3-7-sonnet-20250219": {"input": 3, "output": 15},
+            "claude-3-5-haiku-20241022": {"input": 0.3, "output": 1.25},
+            "claude-3-opus-20240229": {"input": 15, "output": 75},
             "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
             "gemini-2.0-flash-lite": {"input": 0.075, "output": 0.30},
             "gemini-2.5-flash-preview-04-17": {"input": 0.15, "output": 0.60},
@@ -71,13 +71,25 @@ class TokenCounter:
     
     def extract_token_usage_from_openai_response(self, response, model_name: str) -> Dict[str, int]:
         """Extract token usage data from an OpenAI API response"""
+        # This is a sample usage format for OpenAI API responses
+        # usage=ResponseUsage(input_tokens=614, input_tokens_details=InputTokensDetails(cached_tokens=0), output_tokens=142, output_tokens_details=OutputTokensDetails(reasoning_tokens=0), total_tokens=756)
         if hasattr(response, 'usage'):
+            # OpenAI API returns input_tokens, output_tokens, and total_tokens
+            prompt_tokens = getattr(response.usage, 'input_tokens', 0)
+            if hasattr(response.usage, 'input_tokens_details'):
+                cached_tokens = getattr(response.usage.input_tokens_details, 'cached_tokens', 0)
+            completion_tokens = getattr(response.usage, 'output_tokens', 0)
+            if hasattr(response.usage, 'output_tokens_details'):
+                reasoning_tokens = getattr(response.usage.output_tokens_details, 'reasoning_tokens', 0)
+            total_tokens = getattr(response.usage, 'total_tokens', 0) or (prompt_tokens + completion_tokens)
+            
             return {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens
+                "prompt_tokens": prompt_tokens,
+                "cached_tokens": cached_tokens,
+                "completion_tokens": completion_tokens,
+                "reasoning_tokens": reasoning_tokens,
+                "total_tokens": total_tokens
             }
-        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     
     def extract_token_usage_from_claude_response(self, response, model_name: str) -> Dict[str, int]:
         """Extract token usage data from a Claude API response"""

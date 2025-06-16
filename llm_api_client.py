@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from typing import Optional, Dict, List, Any
 from api_utils.logging_utils import setup_logging
 from api_utils.schema_manager import ResponseSchemaManager
 from api_utils.gemini_api import GeminiAPI
@@ -50,7 +51,7 @@ class LLMAPIClient:
             
             # Apply schema if provided
             if schema:
-                response_schema = self.schema_manager.get_gemini_schema(schema)
+                response_schema = self.schema_manager.format_gemini_schema(schema)
                 self.gemini.set_response_schema(response_schema)
             
             # Apply system instruction if provided
@@ -95,7 +96,7 @@ class LLMAPIClient:
             
             # Apply schema if provided
             if schema:
-                response_schema = self.schema_manager.get_claude_schema(schema)
+                response_schema = self.schema_manager.format_claude_schema(schema)
                 prompt = self.claude.apply_response_schema(prompt, response_schema)
             
             # Create message with file
@@ -127,8 +128,7 @@ class LLMAPIClient:
         except Exception as e:
             self.logger.error(f"Error retrieving response from Claude: {str(e)}")
             raise
-    
-    def process_pdf_with_openai(self, file_path, prompt, model_name="gpt-4.1", 
+    def generate_openai_response(self, file_path, prompt, model_name="gpt-4", 
                               temperature=0.2, max_tokens=4096, 
                               system_instruction=None, schema=None):
         """Process a PDF document with OpenAI API"""
@@ -136,28 +136,29 @@ class LLMAPIClient:
             if file_path is not None:
                 self.logger.info(f"Processing with OpenAI (with PDF): {file_path}")
             
-                # Prepare PDF
-                file_data = self.openai.upload_pdf(file_path)
+                # Upload PDF and get file ID
+                file_id = self.openai.upload_pdf(file_path)
 
             else:
                 self.logger.info(f"Processing with OpenAI:")
-                file_data = None  # No file to be attached
+                file_id = None  # No file to be attached
             
-            # Create message with file
-            messages = self.openai.create_message_with_file(file_data, prompt)
+            # Create input message with file
+            input_messages = self.openai.create_input_message(prompt, file_id)
             
             # Apply schema if provided
+            response_schema = None
             if schema:
-                response_schema = self.schema_manager.get_openai_schema(schema)
+                response_schema = self.schema_manager.format_openai_schema(schema)
             
             # Generate response
             response = self.openai.generate_response(
+                input=input_messages,
                 model_name=model_name,
-                messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 system_instruction=system_instruction,
-                schema=response_schema
+                response_schema=response_schema
             )
             
             # Extract token usage from OpenAI response
