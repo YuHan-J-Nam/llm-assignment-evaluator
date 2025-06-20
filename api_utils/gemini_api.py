@@ -95,6 +95,7 @@ class GeminiAPI:
         model: str = "gemini-2.0-flash-lite",
         temperature: float = 0.1,
         max_tokens: int = 2048,
+        enable_thinking: bool = False,
         thinking_budget: Optional[int] = None,
         top_k: int = 20,
         system_instruction: Optional[str] = None,
@@ -108,6 +109,7 @@ class GeminiAPI:
             model (str): 사용할 모델 이름
             temperature (float): 생성 다양성 제어
             max_tokens (int): 최대 토큰 수
+            enable_thinking (bool): 사고 기능 활성화 여부
             thinking_budget (int, optional): 사고 토큰 예산
             top_k (int): top-k sampling 파라미터
             system_instruction (str, optional): 시스템 메시지
@@ -126,15 +128,21 @@ class GeminiAPI:
 
         # 사고 모델별 사고 예산 설정
         if any(name in model for name in ['gemini-2.5-flash-lite', 'gemini-2.5-flash']):
-            if thinking_budget is None:
+            if not enable_thinking:
                 thinking_budget = 0  # 사고 비활성화
+            elif thinking_budget is None:
+                thinking_budget = -1  # Dynamic Thinking 활성화
         elif any(name in model for name in ['gemini-2.5-pro']):
+            # Pro 모델의 경우 사고 비활성화가 불가능
             if thinking_budget is None:
-                thinking_budget = -1 # Pro 모델의 경우 사고 비활성화가 불가능 (-1로 Dynamic Thinking 설정)
+                thinking_budget = -1  # Dynamic Thinking 활성화
 
         # 사고가 가능한 모델일 경우 사고 예산 설정
         if any(version in model for version in ['2.5']):
-               config.thinking_config = types.ThinkingConfig(thinking_budget=thinking_budget)
+            config.thinking_config = types.ThinkingConfig(
+                include_thoughts=True if enable_thinking else None,
+                thinking_budget=thinking_budget
+            )
 
         # 시스템 지시사항이 제공된 경우 추가
         if system_instruction:
@@ -158,6 +166,7 @@ class GeminiAPI:
         model: str = "gemini-2.0-flash-lite",
         temperature: float = 0.1,
         max_tokens: int = 2048,
+        enable_thinking: bool = False,
         thinking_budget: Optional[int] = None,
         top_k: int = 20,
         system_instruction: Optional[str] = None,
@@ -171,6 +180,7 @@ class GeminiAPI:
             model (str): 사용할 모델 이름
             temperature (float): 생성 다양성 제어
             max_tokens (int): 최대 토큰 수
+            enable_thinking (bool): 사고 기능 활성화 여부
             thinking_budget (int, optional): 사고 토큰 예산
             top_k (int): top-k sampling 파라미터
             system_instruction (str, optional): 시스템 메시지
@@ -188,6 +198,7 @@ class GeminiAPI:
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                enable_thinking=enable_thinking,
                 thinking_budget=thinking_budget,
                 top_k=top_k,
                 system_instruction=system_instruction,

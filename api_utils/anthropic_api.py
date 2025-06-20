@@ -111,6 +111,8 @@ class AnthropicAPI:
         model: str = "claude-3-5-haiku-20241022",
         temperature: float = 0.2,
         max_tokens: int = 2048,
+        enable_thinking: bool = False,
+        thinking_budget: Optional[int] = 5000,
         system_instruction: Optional[str] = None,
         response_schema: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
@@ -122,6 +124,8 @@ class AnthropicAPI:
             model (str): 사용할 모델 이름
             temperature (float): 생성 다양성 제어
             max_tokens (int): 최대 토큰 수
+            enable_thinking (bool): 사고 기능 활성화 여부
+            thinking_budget (int, optional): 사고 토큰 예산
             system_instruction (str, optional): 시스템 메시지
             response_schema (dict, optional): 응답 스키마
 
@@ -145,7 +149,16 @@ class AnthropicAPI:
                 "text": system_instruction,
                 "cache_control": {"type": "ephemeral"}
             }]
-        
+
+        # 사고 기능이 활성화된 경우 추가
+        if enable_thinking:
+            if thinking_budget is None:
+                raise ValueError("사고 기능이 활성화된 경우 thinking_budget를 지정해야 합니다.")
+            params["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": thinking_budget
+            }
+
         return params
     
     def generate_response(
@@ -154,6 +167,8 @@ class AnthropicAPI:
         model: str = "claude-3-5-haiku-20241022",
         temperature: float = 0.2,
         max_tokens: int = 2048,
+        enable_thinking: bool = False,
+        thinking_budget: Optional[int] = 5000,
         system_instruction: Optional[str] = None,
         response_schema: Optional[Dict[str, Any]] = None
     ) -> Any:
@@ -165,6 +180,8 @@ class AnthropicAPI:
             model (str): 사용할 모델 이름
             temperature (float): 생성 다양성 제어
             max_tokens (int): 최대 토큰 수
+            enable_thinking (bool): 사고 기능 활성화 여부
+            thinking_budget (int, optional): 사고 토큰 예산
             system_instruction (str, optional): 시스템 메시지
             response_schema (dict, optional): 응답 스키마
 
@@ -180,6 +197,8 @@ class AnthropicAPI:
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                enable_thinking=enable_thinking,
+                thinking_budget=thinking_budget,
                 system_instruction=system_instruction,
                 response_schema=response_schema
             )

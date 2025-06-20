@@ -65,6 +65,8 @@ class OpenAIAPI:
         model: str = "gpt-4.1-nano-2025-04-14",
         temperature: float = 0.2,
         max_tokens: int = 2048,
+        enable_thinking: bool = False,
+        thinking_budget: Optional[int] = 10000,
         system_instruction: Optional[str] = None,
         response_schema: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
@@ -76,6 +78,8 @@ class OpenAIAPI:
             input (list): 입력 메시지
             temperature (float): 생성 다양성 제어
             max_tokens (int): 최대 토큰 수
+            enable_thinking (bool): 사고 모드 활성화 여부
+            thinking_budget (int, optional): 사고 토큰 예산
             system_instruction (str, optional): 시스템 메시지
             response_schema (dict, optional): 응답 스키마
 
@@ -97,6 +101,14 @@ class OpenAIAPI:
         # 스키마가 제공된 경우 추가
         if response_schema:
             params["text"] = self.schema_manager.format_openai_schema(response_schema)
+
+        # 사고 모드가 활성화된 경우 추가
+        if enable_thinking:
+            params["reasoning"] = {
+                "effort": "medium",
+                "summary": "auto"
+            }
+            params["max_output_tokens"] = max_tokens + thinking_budget
             
         return params
 
@@ -106,6 +118,8 @@ class OpenAIAPI:
         model: str = "gpt-4.1-nano-2025-04-14",
         temperature: float = 0.2,
         max_tokens: int = 2048,
+        enable_thinking: bool = False,
+        thinking_budget: Optional[int] = 10000,
         system_instruction: Optional[str] = None,
         response_schema: Optional[Dict[str, Any]] = None
     ) -> Any:
@@ -132,6 +146,8 @@ class OpenAIAPI:
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                enable_thinking=enable_thinking,
+                thinking_budget=thinking_budget,
                 system_instruction=system_instruction,
                 response_schema=response_schema
             )
