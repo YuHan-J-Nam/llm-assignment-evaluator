@@ -25,7 +25,7 @@ class AnthropicAPI:
             file_name = os.path.basename(file_path)
 
             with open(file_path, "rb") as file:
-                uploaded_file = self.client.beta.files.upload(
+                uploaded_file = self.client.files.upload(
                     file=(file_path, file, "application/pdf"),
                 )
             
@@ -64,29 +64,31 @@ class AnthropicAPI:
     # Anthropic API의 메시지 생성 및 응답 관련 메서드
     # --------------------------------------------------------
 
-    def create_input_message(self, prompt: str, file_id: Optional[str] = None, file_data: Optional[Dict[str, Any]] = None, cache: bool = True) -> List[Dict[str, Any]]:
+    def create_input_message(self, prompt: str, file_id: Optional[str] = None, file_data: Optional[Dict[str, Any]] = None, cache: bool = False) -> List[Dict[str, Any]]:
         """입력 메시지를 생성합니다. 필요할 경우 첨부파일을 포함합니다.
         Args:
             prompt (str): 사용자 입력 프롬프트
-            file_id (str, optional): 업로드된 파일의 ID. None인 경우 첨부파일 없음.
-            file_data (dict, optional): 업로드된 파일의 base64 인코딩 데이터. None인 경우 첨부파일 없음."""
+            file_id (str, optional): 업로드된 파일 ID. None인 경우 첨부파일 없음.
+            file_data (dict, optional): 업로드된 파일 데이터. None인 경우 첨부파일 없음.
+            cache (bool): 캐시 제어 여부. True인 경우 ephemeral 캐시 사용."""
+        
         content = [{"type": "text", "text": prompt}]
         if cache:
             content[0]['cache_control'] = {"type": "ephemeral"}
-        
-        if file_data:
-            content.insert(0,{
-                "type": "document",
-                "source": file_data
-            })
 
-        elif file_id:
-            content.insert(0,{
+        if file_id:
+            content.insert(0, {
                 "type": "document",
                 "source": {
                     "type": "file",
                     "file_id": file_id
                 }
+            })
+
+        elif file_data:
+            content.insert(0, {
+                "type": "document",
+                "source": file_data
             })
         
         return [{"role": "user", "content": content}]
@@ -220,9 +222,8 @@ class AnthropicAPI:
             return response
             
         except Exception as e:
-            end_time = time.time()
-            response_time = end_time - start_time
-            self.logger.error(f"Anthropic의 {model}에서 응답 생성 오류 (응답 시간: {response_time:.2f}초): {str(e)}")
+            self.logger.error(f"Anthropic의 {model}에서 응답 생성 오류: {str(e)}")
+            self.logger.debug(f"Anthropic API 요청 파라미터: {params}", exc_info=True)
             raise
 
     # --------------------------------------------------------

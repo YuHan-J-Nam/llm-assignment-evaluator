@@ -5,7 +5,7 @@ import time
 import json
 from typing import Optional, Dict, List, Any, Tuple, Iterator
 from api_utils.config import init_openai_client
-from api_utils.pdf_utils import validate_pdf
+from api_utils.pdf_utils import validate_pdf, encode_pdf_base64
 from api_utils.schema_manager import ResponseSchemaManager
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -38,24 +38,52 @@ class OpenAIAPI:
             
         except Exception as e:
             self.logger.error(f"파일 업로드 실패 {file_name}: {str(e)}")
-            raise    
+            raise
+
+    def prepare_pdf(self, file_path: str) -> Dict[str, Any]:
+        """OpenAI API용 PDF 파일을 준비합니다"""
+        try:
+            validate_pdf(file_path)
+            file_name = os.path.basename(file_path)
+
+            self.logger.info(f"OpenAI용 PDF 준비 중: {file_path}")
+            
+            # OpenAI은 base64로 인코딩된 파일을 허용합니다
+            pdf_data = encode_pdf_base64(file_path)
+            
+            media_data = {
+                "type": "input_file",
+                "filename": file_name,
+                "file_data": f"data:application/pdf;base64,{pdf_data}"
+            }  
+            
+            self.logger.info(f"OpenAI 요청용 PDF 준비 완료: {file_name}")
+            return media_data
+            
+        except Exception as e:
+            self.logger.error(f"OpenAI 요청용 PDF {file_name} 준비 오류: {str(e)}")
+            raise
 
     # --------------------------------------------------------
     # OpenAI API의 메시지 생성 및 응답 관련 메서드
     # --------------------------------------------------------
     
-    def create_input_message(self, prompt: str, file_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """입력 메시지를 생성합니다. 필요할 경우 파일 첨부를 포함합니다.
+    def create_input_message(self, prompt: str, file_id: Optional[str] = None, file_data: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """입력 메시지를 생성합니다. 필요할 경우 첨부파일을 포함합니다.
         Args:
             prompt (str): 사용자 입력 프롬프트
-            file_id (str, optional): 업로드된 파일의 ID. None인 경우 파일 첨부 없음."""
+            file_id (str, optional): 업로드된 파일 ID. None인 경우 첨부파일 없음.
+            file_data (dict, optional): 업로드된 파일 데이터. None인 경우 첨부파일 없음."""
         content = [{"type": "input_text", "text": prompt}]
         
         if file_id:
-            content.append({
+            content.insert(0,{
                 "type": "input_file",
                 "file_id": file_id
             })
+        
+        elif file_data:
+            content.insert(0, file_data)
         
         return [{"role": "user", "content": content}]
         
@@ -137,20 +165,20 @@ class OpenAIAPI:
         Returns:
             response: OpenAI API의 응답
         """
+        # API 호출 파라미터 생성
+        params = self.create_response_params(
+            input=input,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            enable_thinking=enable_thinking,
+            thinking_budget=thinking_budget,
+            system_instruction=system_instruction,
+            response_schema=response_schema
+        )
+
         try:
             self.logger.info(f"OpenAI 모델에 요청 전송 중: {model}")
-
-            # API 호출 파라미터 생성
-            params = self.create_response_params(
-                input=input,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                enable_thinking=enable_thinking,
-                thinking_budget=thinking_budget,
-                system_instruction=system_instruction,
-                response_schema=response_schema
-            )
 
             # 응답 시간 측정을 위한 타이머 시작
             start_time = time.time()
@@ -169,9 +197,8 @@ class OpenAIAPI:
             return response
 
         except Exception as e:
-            end_time = time.time()
-            response_time = end_time - start_time
-            self.logger.error(f"OpenAI의 {model}에서 응답 생성 오류 (응답 시간: {response_time:.2f}초): {str(e)}")
+            self.logger.error(f"OpenAI의 {model}에서 응답 생성 오류: {str(e)}")
+            self.logger.debug(f"OpenAI API 요청 파라미터: {params}", exc_info=True)
             raise
 
     # --------------------------------------------------------

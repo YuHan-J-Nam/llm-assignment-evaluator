@@ -1,6 +1,7 @@
 import logging
 import time
 import os
+import json
 from typing import Optional, Dict, List, Any
 from google.genai import types
 from api_utils.config import init_gemini_client
@@ -222,7 +223,6 @@ class GeminiAPI:
             return response
             
         except Exception as e:
-            end_time = time.time()
-            response_time = end_time - start_time
-            self.logger.error(f"Gemini의 {model}에서 응답 생성 오류 (응답 시간: {response_time:.2f}초): {str(e)}")
+            self.logger.error(f"Gemini의 {model}에서 응답 생성 오류: {str(e)}")
+            self.logger.debug(f"Gemini API 요청 파라미터: {params}", exc_info=True)
             raise

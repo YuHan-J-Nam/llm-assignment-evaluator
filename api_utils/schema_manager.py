@@ -45,18 +45,18 @@ class ResponseSchemaManager:
     def format_gemini_schema(self, custom_schema=None):
         """Gemini API용으로 포맷된 스키마 가져오기"""
         # 현재로서는 별도 요구사항이 없지만, 필요시 추가 가능
-        schema = custom_schema if custom_schema else self.default_schema
+        schema = custom_schema.copy() if custom_schema else self.default_schema.copy()
         return schema
     
     def format_anthropic_schema(self, custom_schema=None):
         """Anthropic API용으로 포맷된 스키마 가져오기"""
         # 현재로서는 별도 요구사항이 없지만, 필요시 추가 가능
-        schema = custom_schema if custom_schema else self.default_schema
+        schema = custom_schema.copy() if custom_schema else self.default_schema.copy()
         return schema
     
     def format_openai_schema(self, custom_schema=None):
         """OpenAI API용으로 포맷된 스키마 가져오기"""
-        schema = custom_schema if custom_schema else self.default_schema
+        schema = custom_schema.copy() if custom_schema else self.default_schema.copy()
 
         # 엄격한 스키마 검증을 위해 추가 속성 설정
         processed_schema = self._add_additional_properties_to_schema(schema)
