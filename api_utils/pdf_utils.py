@@ -1,7 +1,6 @@
 import os
 import base64
 import logging
-import mimetypes
 from PyPDF2 import PdfReader
 import io
 
@@ -34,16 +33,6 @@ def encode_pdf_base64(file_path):
     except Exception as e:
         logging.error(f"Error encoding PDF file {file_path}: {str(e)}")
         raise
-
-def get_file_mime_type(file_path):
-    """Determine the MIME type of a file"""
-    mime_type, _ = mimetypes.guess_type(file_path)
-    if mime_type is None:
-        if file_path.lower().endswith('.pdf'):
-            mime_type = 'application/pdf'
-        else:
-            mime_type = 'application/octet-stream'
-    return mime_type
 
 def validate_pdf(file_path):
     """Validate that the file is a valid PDF"""
