@@ -10,17 +10,40 @@ class TokenCounter:
         self.logger = logger or logging.getLogger("token_counter")
         self.usage_log = []
         
-        # Token cost per 1K tokens (input/output) for reference
-        self.token_costs = {
-            "o4-mini": {"input": 1.1, "output": 4.4},
-            "gpt-4.1": {"input": 2, "output": 8},
-            "gpt-4.1-mini": {"input": 0.4, "output": 1.6},
-            "claude-3-7-sonnet-20250219": {"input": 3, "output": 15},
-            "claude-3-5-haiku-20241022": {"input": 0.3, "output": 1.25},
-            "claude-3-opus-20240229": {"input": 15, "output": 75},
-            "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
-            "gemini-2.0-flash-lite": {"input": 0.075, "output": 0.30},
-            "gemini-2.5-flash-preview-04-17": {"input": 0.15, "output": 0.60},
+        # 2025년 6월 11일 기준 최신 가격 정보 (per 1M tokens)
+        self.token_cost = {
+            # Google Gemini 시리즈 - https://ai.google.dev/gemini-api/docs/pricing
+            # 무료 티어 사용자의 경우 모든 모델이 무료
+            "gemini-2.5-flash": {"input": 0.0, "output": 0.0},  # 무료 티어
+            "gemini-2.5-flash-preview": {"input": 0.0, "output": 0.0},  # 무료 티어
+            "gemini-2.0-flash": {"input": 0.0, "output": 0.0},  # 무료 티어
+            "gemini-2.0-flash-lite": {"input": 0.0, "output": 0.0},  # 무료 티어
+            
+            # 참고: 유료 티어 Gemini 가격 (주석으로 보관)
+            # "gemini-2.5-pro": {"input": 1.25, "output": 10.00, "context_caching": 0.31},
+            # "gemini-2.5-flash": {"input": 0.30, "output": 2.50, "context_caching": 0.075},
+            # "gemini-2.5-flash-lite-preview-06-17": {"input": 0.10, "output": 0.40, "context_caching": 0.025},
+            # "gemini-2.0-flash": {"input": 0.10, "output": 0.40, "context_caching": 0.025},
+            # "gemini-2.0-flash-lite": {"input": 0.075, "output": 0.30},
+
+            # Anthropic Claude 시리즈 - https://docs.anthropic.com/en/docs/about-claude/pricing
+            "claude-opus-4": {"input": 15.00, "output": 75.00, "cached_input": 1.50},
+            "claude-sonnet-4": {"input": 3.00, "output": 15.00, "cached_input": 0.30},
+            "claude-3-7-sonnet": {"input": 3.00, "output": 15.00, "cached_input": 0.30},
+            "claude-3-5-sonnet": {"input": 3.00, "output": 15.00, "cached_input": 0.30},
+            "claude-3-5-haiku": {"input": 0.80, "output": 4.00, "cached_input": 0.08},
+            "claude-3-opus": {"input": 15.00, "output": 75.00, "cached_input": 1.50},
+            "claude-3-haiku": {"input": 0.25, "output": 1.25, "cached_input": 0.03},
+
+            # OpenAI 시리즈 - https://openai.com/api/pricing/
+            "gpt-4.1": {"input": 2.00, "output": 8.00, "cached_input": 0.50},
+            "gpt-4.1-mini": {"input": 0.40, "output": 1.60, "cached_input": 0.10},
+            "gpt-4.1-nano": {"input": 0.10, "output": 0.40, "cached_input": 0.025},
+            "gpt-4o": {"input": 2.50, "output": 10.00, "cached_input": 1.25},
+            "gpt-4o-mini": {"input": 0.15, "output": 0.60, "cached_input": 0.075},
+            "o3": {"input": 2.00, "output": 8.00, "cached_input": 0.50},
+            "o4-mini": {"input": 1.100, "output": 4.400, "cached_input": 0.275},
+            "o3-mini": {"input": 1.100, "output": 4.400, "cached_input": 0.55}    
         }
     
     def log_token_usage(self, model_name: str, prompt_tokens: int = 0, 
@@ -69,18 +92,16 @@ class TokenCounter:
         
         return usage_entry
     
-    def extract_token_usage_from_openai_response(self, response, model_name: str) -> Dict[str, int]:
+    def extract_token_usage_from_openai_response(self, response) -> Dict[str, int]:
         """Extract token usage data from an OpenAI API response"""
         # This is a sample usage format for OpenAI API responses
         # usage=ResponseUsage(input_tokens=614, input_tokens_details=InputTokensDetails(cached_tokens=0), output_tokens=142, output_tokens_details=OutputTokensDetails(reasoning_tokens=0), total_tokens=756)
         if hasattr(response, 'usage'):
             # OpenAI API returns input_tokens, output_tokens, and total_tokens
             prompt_tokens = getattr(response.usage, 'input_tokens', 0)
-            if hasattr(response.usage, 'input_tokens_details'):
-                cached_tokens = getattr(response.usage.input_tokens_details, 'cached_tokens', 0)
+            cached_tokens = getattr(response.usage.input_tokens_details, 'cached_tokens', 0)
             completion_tokens = getattr(response.usage, 'output_tokens', 0)
-            if hasattr(response.usage, 'output_tokens_details'):
-                reasoning_tokens = getattr(response.usage.output_tokens_details, 'reasoning_tokens', 0)
+            reasoning_tokens = getattr(response.usage.output_tokens_details, 'reasoning_tokens', 0)
             total_tokens = getattr(response.usage, 'total_tokens', 0) or (prompt_tokens + completion_tokens)
             
             return {
@@ -91,11 +112,13 @@ class TokenCounter:
                 "total_tokens": total_tokens
             }
     
-    def extract_token_usage_from_claude_response(self, response, model_name: str) -> Dict[str, int]:
-        """Extract token usage data from a Claude API response"""
+    def extract_token_usage_from_anthropic_response(self, response) -> Dict[str, int]:
+        """Extract token usage data from a Anthropic API response"""
         if hasattr(response, 'usage'):
-            # Claude API returns input_tokens and output_tokens
+            # Anthropic API returns input_tokens and output_tokens
             prompt_tokens = getattr(response.usage, 'input_tokens', 0)
+            cache_creation_input_tokens = getattr(response.usage, 'cache_creation_input_tokens', 0)
+            cache_read_input_tokens = getattr(response.usage, 'cache_read_input_tokens', 0)
             completion_tokens = getattr(response.usage, 'output_tokens', 0)
             total_tokens = prompt_tokens + completion_tokens
             
@@ -104,9 +127,8 @@ class TokenCounter:
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens
             }
-        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     
-    def extract_token_usage_from_gemini_response(self, response, model_name: str) -> Dict[str, int]:
+    def extract_token_usage_from_gemini_response(self, response) -> Dict[str, int]:
         """Extract token usage data from a Gemini API response"""
         if hasattr(response, 'usage_metadata'):
             # Gemini API returns prompt_token_count, candidates_token_count, and total_token_count
@@ -119,7 +141,6 @@ class TokenCounter:
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens
             }
-        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     
     def _get_base_model_name(self, full_model_name: str) -> str:
         """Extract base model name for cost calculation"""

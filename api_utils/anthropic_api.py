@@ -22,30 +22,30 @@ class AnthropicAPI:
         """Anthropic의 File API에 PDF를 업로드합니다."""
         try:
             validate_pdf(file_path)
-            
+            file_name = os.path.basename(file_path)
+
             with open(file_path, "rb") as file:
                 uploaded_file = self.client.beta.files.upload(
                     file=(file_path, file, "application/pdf"),
                 )
             
-            self.logger.info(f"파일 업로드 성공. 파일 ID: {uploaded_file.id}")
+            self.logger.info(f"파일 {file_name} 업로드 성공. 파일 ID: {uploaded_file.id}")
             return uploaded_file
             
         except Exception as e:
-            self.logger.error(f"파일 업로드 실패 {file_path}: {str(e)}")
+            self.logger.error(f"파일 업로드 실패 {file_name}: {str(e)}")
             raise
     
     def prepare_pdf(self, file_path: str) -> Dict[str, Any]:
         """Anthropic API용 PDF 파일을 준비합니다"""
         try:
             validate_pdf(file_path)
+            file_name = os.path.basename(file_path)
+
             self.logger.info(f"Anthropic용 PDF 준비 중: {file_path}")
             
             # Anthropic은 base64로 인코딩된 파일을 허용합니다
             pdf_data = encode_pdf_base64(file_path)
-            
-            # 파일명 추출
-            file_name = os.path.basename(file_path)
             
             media_data = {
                 "type": "base64",
@@ -57,7 +57,7 @@ class AnthropicAPI:
             return media_data
             
         except Exception as e:
-            self.logger.error(f"Anthropic 요청용 PDF 준비 오류: {str(e)}")
+            self.logger.error(f"Anthropic 요청용 PDF {file_name} 준비 오류: {str(e)}")
             raise
     
     # --------------------------------------------------------

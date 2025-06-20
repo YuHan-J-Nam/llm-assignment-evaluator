@@ -17,10 +17,15 @@ class OpenAIAPI:
         self.logger = logger or logging.getLogger("openai_api")
         self.schema_manager = ResponseSchemaManager()
 
+    # --------------------------------------------------------
+    # PDF 파일 업로드 관련 메서드
+    # --------------------------------------------------------
+
     def upload_pdf(self, file_path:str) -> str:
         """OpenAI의 File API에 PDF를 업로드합니다."""
         try:
             validate_pdf(file_path)
+            file_name = os.path.basename(file_path)
             
             with open(file_path, "rb") as file:
                 uploaded_file = self.client.files.create(
@@ -28,12 +33,16 @@ class OpenAIAPI:
                     purpose="user_data"
                 )
             
-            self.logger.info(f"파일 업로드 성공. 파일 ID: {uploaded_file.id}")
+            self.logger.info(f"파일 {file_name} 업로드 성공. 파일 ID: {uploaded_file.id}")
             return uploaded_file
             
         except Exception as e:
-            self.logger.error(f"파일 업로드 실패 {file_path}: {str(e)}")
+            self.logger.error(f"파일 업로드 실패 {file_name}: {str(e)}")
             raise    
+
+    # --------------------------------------------------------
+    # OpenAI API의 메시지 생성 및 응답 관련 메서드
+    # --------------------------------------------------------
     
     def create_input_message(self, prompt: str, file_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """입력 메시지를 생성합니다. 필요할 경우 파일 첨부를 포함합니다.
@@ -470,7 +479,7 @@ class OpenAIAPI:
     def batch_process(
         self, 
         prompts: List[str], 
-        model: str = "gpt-4o-2024-05-13",
+        model: str = "gpt-4.1-nano-2025-04-14",
         temperature: float = 0.2,
         max_tokens: int = 2048,
         system_instruction: Optional[str] = None,
