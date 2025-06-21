@@ -10,28 +10,65 @@ import ipywidgets as widgets
 from IPython.display import display, HTML
 
 # Default template texts
-DEFAULT_SYSTEM_INSTRUCTION_EVALUATION = """
-너는 선생님이다. 학생이 제출한 수행평가 과제에 대하여, 각 평가항목을 기반으로 논리적으로 평가하라. 
-학생의 점수와 왜 그 점수를 받았는지에 대해 서술하고, 가능하다면 학생이 작성한 과제중 관련 텍스트를 증거로 제시하라.
+# DEFAULT_SYSTEM_INSTRUCTION_EVALUATION = """
+# 너는 선생님이다. 학생이 제출한 수행평가 과제에 대하여, 각 평가항목을 기반으로 논리적으로 평가하라. 
+# 학생의 점수와 왜 그 점수를 받았는지에 대해 서술하고, 가능하다면 학생이 작성한 과제중 관련 텍스트를 증거로 제시하라.
 
+# 수행평가에 대한 세부정보는 다음과 같다:
+
+# 학년: [학년]
+# 과목: [과목]
+# 수행평가 제목: [수행평가 제목]
+# 수행평가 유형: [수행평가 유형]
+# 수행평가 설명: [수행평가 설명]
+
+# 최종 평가내용을 JSON 형식으로 반환하라.
+# """
+
+DEFAULT_SYSTEM_INSTRUCTION_EVALUATION = """
+너는 고등학교 [과목] 담당 교사이며, 학생이 제출한 [수행평가 제목] 수행평가 과제물을 객관적이고 공정하게 평가하는 전문 평가자 역할을 수행한다. 다음 지침을 명확히 숙지하여 평가하라.
 수행평가에 대한 세부정보는 다음과 같다:
 
 학년: [학년]
-과목: [과목]
 수행평가 제목: [수행평가 제목]
 수행평가 유형: [수행평가 유형]
 수행평가 설명: [수행평가 설명]
 
-최종 평가내용을 JSON 형식으로 반환하라.
+평가 수행 지침
+1. 평가 기준 엄격 준수
+- 제공된 평가 기준 및 체크리스트의 항목을 정확히 준수하여 평가하라.
+
+2. 직접적 인용 및 명확한 설명
+- 학생의 제출물에서 인용된 표현을 근거로 사용한다면 해당 표현이 평가 기준에 적합하거나 미흡한 이유를 구체적으로 설명하라.
+
+3. 논리적이고 객관적인 근거
+- 평가 결과가 일관되도록 하고, 점수 부여의 근거를 명확히 기술하여 객관성과 신뢰성을 높이도록 하라.
+
+평가 결과는 반드시 지정된 JSON 구조로만 응답하라.
 """
 
-DEFAULT_PROMPT_EVALUATION = """
-다음은 학생이 제출한 수행평가 과제이다. 수행평가 과제에 대한 세부정보와 평가 기준을 고려하여, 각 평가항목에 대하여 논리적으로 평가하라.
+# DEFAULT_PROMPT_EVALUATION = """
+# 다음은 학생이 제출한 수행평가 과제이다. 수행평가 과제에 대한 세부정보와 평가 기준을 고려하여, 각 평가항목에 대하여 논리적으로 평가하라.
 
-평가 기준은 다음과 같다:
+# 평가 기준은 다음과 같다:
+# [평가 기준]
+
+# 학생의 수행평가 과제는 다음과 같다:
+# [학생 제출물]
+# """
+
+DEFAULT_PROMPT_EVALUATION ="""
+다음은 학생이 제출한 수행평가 과제물이다. 아래에 제시된 평가 기준을 참고하여 과제물을 체계적으로 분석하고 평가하라. 평가 시 다음 단계를 순차적으로 따르라:
+
+1. 평가기준을 꼼꼼히 읽고 이해하라.
+2. 학생의 제출물을 세심히 분석하며, 평가 기준에 부합하거나 미흡한 점이 있는지 확인하라. 만약 직접적으로 인용할 수 있는 표현이 있다면, 해당 표현을 정확히 인용하라.
+3. 인용한 표현이 있다면 평가 기준과의 관계를 논리적으로 설명하라.
+4. 평가 항목별로 정량적 점수를 부여하며 근거를 구체적으로 기술하라.
+
+평가 기준:
 [평가 기준]
 
-학생의 수행평가 과제는 다음과 같다:
+학생 제출물:
 [학생 제출물]
 """
 
@@ -143,11 +180,11 @@ EVALUATION_SCHEMA = {
                                 },
                                 "reason": {
                                     "type": "string",
-                                    "description": "점수 평가 이유"
+                                    "description": "평가 기준에 대한 구체적이고 논리적인 부합성 설명"
                                 },
                                 "evidence":{
                                     "type": "array",
-                                    "description": "관련 있는 텍스트를 증거로 제시",
+                                    "description": "평가 기준의 근거가 되는 인용한 텍스트",
                                     "items": {
                                         "type": "string",
                                         "description": "증거 텍스트"
@@ -545,8 +582,8 @@ class TemplateWidgetsComponent(BaseComponent):
         values = input_component.get_values()
         
         # Format templates using the helper method
-        self.system_instruction_widget.value = self.format_template(self.system_template, values)
-        self.prompt_widget.value = self.format_template(self.prompt_template, values)
+        self.system_instruction_widget.value = self.format_template(self.system_instruction_widget.value, values)
+        self.prompt_widget.value = self.format_template(self.prompt_widget.value, values)
         
         print("템플릿이 업데이트되었습니다.")
     
@@ -582,7 +619,7 @@ class ModelSelectionComponent(BaseComponent):
         """Create model selection widgets"""
         # Model selection dropdowns
         self.gemini_model_selection = widgets.Dropdown(
-            options=['gemini-2.5-flash-preview-04-17', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'None'],
+            options=['gemini-2.5-flash-preview-05-20', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'None'],
             value='gemini-2.0-flash',
             description='Gemini 모델:'
         )
@@ -1289,15 +1326,18 @@ class AssignmentEvaluationManager(BaseWidgetManager):
             self.checklist_component.create_layout(),
             widgets.HTML("<h3>학생 제출물</h3>"),
             self.student_submission_component.create_layout(),
-            self.pdf_upload_component.create_layout(),
-            self.output_area, self.error_area
+            self.pdf_upload_component.create_layout()
         ])
         
         # Tab 1: 템플릿 편집
         templates = self.template_component.create_layout()
         
         # Tab 2: 모델 설정
-        model_settings = self.model_component.create_layout()
+        model_settings = widgets.VBox([
+            self.model_component.create_layout(),
+            widgets.HTML("<h3>처리 과정</h3>"),
+            self.output_area, self.error_area
+        ])
         
         # Tab 3: 결과 보기
         results = self.output_component.create_layout()

@@ -215,12 +215,9 @@ class GeminiAPI:
             # 응답 시간 계산
             end_time = time.time()
             response_time = end_time - start_time
-
-            # 응답 객체에 response_time 속성 추가
-            # response.response_time = response_time
             
             self.logger.info(f"Gemini 모델로부터 응답 수신 성공: {model}, 응답 시간: {response_time:.2f}초")
-            return response
+            return response, response_time
             
         except Exception as e:
             self.logger.error(f"Gemini의 {model}에서 응답 생성 오류: {str(e)}")

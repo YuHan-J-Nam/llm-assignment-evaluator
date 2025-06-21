@@ -1,9 +1,12 @@
 import logging
+import json
 import asyncio
+import pandas as pd
 import concurrent.futures
 from datetime import datetime
 from typing import Optional, Dict, List, Any, Tuple, Union
 from api_utils.logging_utils import setup_logging
+from api_utils.schema_manager import ResponseSchemaManager
 from api_utils.gemini_api import GeminiAPI
 from api_utils.anthropic_api import AnthropicAPI
 from api_utils.openai_api import OpenAIAPI
@@ -50,12 +53,12 @@ MODEL_DICT = {
             "gpt-4.1-nano",
             "gpt-4o",
             "gpt-4o-mini",
-            "o3",
+            # "o3",  # organization must be verified to use the model `o3`
             "o4-mini",
             "o3-mini"
         ],
         "thinking_models": [
-            "o3",
+            # "o3",
             "o4-mini",
             "o3-mini"
         ]
@@ -67,6 +70,7 @@ class LLMAPIClient:
     
     def __init__(self, log_level=logging.INFO):
         self.logger = setup_logging(log_level)
+        self.schema_manager = ResponseSchemaManager()
 
         # Initialize API clients
         self.gemini = GeminiAPI(self.logger)
@@ -288,14 +292,125 @@ class LLMAPIClient:
         
         return results
     
+    def save_results(self, results: Dict[str, Any], file_path: str, essay_id: Optional[str]= None) -> None:
+        """
+        Save the results of API calls to a JSON file.
+        
+        Args:
+            results: Dictionary containing model responses
+            file_path: Path to save the results JSON file
+            essay_id: Optional essay ID to include in the results
+        """
+        try:
+            with open(file_path, 'w') as f:
+                f.write(f"Essay ID: {essay_id}\n\n")
+                for model, response in results.items():
+                    f.write(f"Model: {model}\n")
+                    if 'error' in response:
+                        f.write(f"Error: {response['error']}\n")
+                    elif 'response' in response:
+                        f.write(f"Response: {response['response'].model_dump_json(indent=2)}\n")
+                        f.write(f"Response Time: {response['response_time']:.2f} seconds\n\n")
+            self.logger.info(f"Results saved to {file_path}")
+        except Exception as e:
+            self.logger.error(f"Error saving results to file {file_path}: {str(e)}")
+            raise
+
+    def process_results(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process the results of API calls to extract relevant information.
+        
+        Args:
+            results: Dictionary containing model responses
+            
+        Returns:
+            Processed results with relevant information extracted
+        """
+        processed_results = {}
+        for model, entry in results.items():
+            if 'error' in entry:
+                continue  # Skip models that returned errors
+            try:
+                if model in MODEL_DICT['Gemini']['supported_models']:
+                    processed_results[model] = {
+                        "text": entry['response'].candidates[0].content.parts[0].text,
+                        "token_usage": json.loads(entry['response'].usage_metadata.model_dump_json()),
+                        "response_time": entry['response_time']
+                    }
+                elif model in MODEL_DICT['Anthropic']['supported_models']:
+                    processed_results[model] = {
+                        "text": entry['response'].content[0].text,
+                        "token_usage": json.loads(entry['response'].usage.model_dump_json()),
+                        "response_time": entry['response_time']
+                    }
+                elif model in MODEL_DICT['OpenAI']['supported_models']:
+                    # OpenAI responses with reasoning can have multiple outputs, handle accordingly
+                    output_idx = 0 if model not in MODEL_DICT['OpenAI']['thinking_models'] else 1
+                    processed_results[model] = {
+                        "text": entry['response'].output[output_idx].content[0].text,
+                        "token_usage": json.loads(entry['response'].usage.model_dump_json()),
+                        "response_time": entry['response_time']
+                    }
+            except Exception as e:
+                self.logger.error(f"Skipping model {model} due to processing error: {str(e)}")
+                continue
+
+            processed_results[model]['text'] = self.schema_manager.parse_response(
+                response_text=processed_results[model]['text'], model=model)
+            
+        return processed_results
+    
+    def extract_scores(self, results: Dict[str, Any], essay_id: Optional[str]= None) -> Dict[str, float]:
+        """
+        Extract scores from results of API calls.
+        
+        Args:
+            results: Dictionary containing model responses
+            essay_id: Optional essay ID to filter results
+            
+        Returns:
+            Dictionary mapping model names to their scores
+        """
+        processed_results = self.process_results(results)
+        if not processed_results:
+            self.logger.warning("No results to process")
+            return {}
+
+        all_results = []
+
+        # 결과 처리
+        try:
+            for model, result in processed_results.items():
+                if 'raw_text' in result['text']:
+                    continue  # JSON 파싱 실패로 인해 raw_text가 있는 경우 건너뜀
+
+                result_data = {
+                    "essay_id": essay_id,
+                    "model": model,
+                    "response_time": result['response_time']
+                }
+
+                for item in result['text']['checklist']:
+                    for sub_item in item['subcategories']:
+                        result_data[f"{sub_item['name']}"] = sub_item['score']
+
+                all_results.append(result_data)
+
+            # 결과를 DataFrame으로 반환
+            return pd.DataFrame(all_results)
+        
+        except Exception as e:
+            self.logger.error(f"Error extracting scores: {str(e)}")
+            return pd.DataFrame()
+    
     def _process_with_gemini(
         self, 
         file_path: Optional[str], 
         prompt: str, 
-        model: str = "gemini-2.0-flash-lite", 
-        temperature: float = 0.1, 
-        top_p: float = 0.95, 
-        max_tokens: int = 4096, 
+        model: str = "gemini-2.0-flash-lite",
+        temperature: float = 0.1,
+        top_p: float = 0.95,
+        max_tokens: int = 4096,
         system_instruction: Optional[str] = None, 
         response_schema: Optional[Dict[str, Any]] = None,
         enable_thinking: bool = False,
@@ -314,7 +429,7 @@ class LLMAPIClient:
             contents = self.gemini.create_input_message(prompt, file_obj)
             
             # Generate response
-            response = self.gemini.generate_response(
+            response, response_time = self.gemini.generate_response(
                 input=contents,
                 model=model,
                 temperature=temperature,
@@ -335,7 +450,7 @@ class LLMAPIClient:
             #     completion_tokens=token_usage["completion_tokens"],
             #     total_tokens=token_usage["total_tokens"]
             # )
-            return response
+            return {"response": response, "response_time": response_time}
             
         except Exception as e:
             raise
@@ -355,24 +470,29 @@ class LLMAPIClient:
         """Process a request with Anthropic API"""
         try:
             file_id, file_data = None, None
-            try:
-                uploaded_file = self.anthropic.upload_pdf(file_path)
-                file_id = uploaded_file.id
-                self.logger.info(f"PDF 업로드 성공, 파일 ID 사용: {file_id}")
-            except Exception as upload_error:
-                self.logger.warning(f"PDF 업로드 실패, base64 인코딩으로 대체: {str(upload_error)}")
+
+            if file_path is not None:
+                self.logger.info(f"Processing with Anthropic (with PDF): {file_path}")
                 try:
-                    file_data = self.anthropic.prepare_pdf(file_path)
-                    self.logger.info("PDF base64 인코딩 성공")
-                except Exception as prepare_error:
-                    self.logger.error(f"PDF 처리 완전 실패: {str(prepare_error)}")
-                    raise prepare_error
+                    uploaded_file = self.anthropic.upload_pdf(file_path)
+                    file_id = uploaded_file.id
+                    self.logger.info(f"PDF 업로드 성공, 파일 ID 사용: {file_id}")
+                except Exception as upload_error:
+                    self.logger.warning(f"PDF 업로드 실패, base64 인코딩으로 대체: {str(upload_error)}")
+                    try:
+                        file_data = self.anthropic.prepare_pdf(file_path)
+                        self.logger.info("PDF base64 인코딩 성공")
+                    except Exception as prepare_error:
+                        self.logger.error(f"PDF 처리 완전 실패: {str(prepare_error)}")
+                        raise prepare_error
+            else:
+                self.logger.info(f"Processing with Anthropic model: {model}")
             
             # Create message with file
             messages = self.anthropic.create_input_message(prompt, file_data=file_data)
             
             # Generate response
-            response = self.anthropic.generate_response(
+            response, response_time = self.anthropic.generate_response(
                 input=messages,
                 model=model,
                 temperature=temperature,
@@ -393,7 +513,7 @@ class LLMAPIClient:
             #     completion_tokens=token_usage["completion_tokens"],
             #     total_tokens=token_usage["total_tokens"]
             # )
-            return response
+            return {"response": response, "response_time": response_time}
             
         except Exception as e:
             raise
@@ -413,24 +533,29 @@ class LLMAPIClient:
         """Process a request with OpenAI API"""
         try:
             file_id, file_data = None, None
-            try:
-                uploaded_file = self.openai.upload_pdf(file_path)
-                file_id = uploaded_file.id
-                self.logger.info(f"PDF 업로드 성공, 파일 ID 사용: {file_id}")
-            except Exception as upload_error:
-                self.logger.warning(f"PDF 업로드 실패, base64 인코딩으로 대체: {str(upload_error)}")
+
+            if file_path is not None:
+                self.logger.info(f"Processing with OpenAI (with PDF): {file_path}")
                 try:
-                    file_data = self.openai.prepare_pdf(file_path)
-                    self.logger.info("PDF base64 인코딩 성공")
-                except Exception as prepare_error:
-                    self.logger.error(f"PDF 처리 완전 실패: {str(prepare_error)}")
-                    raise prepare_error
+                    uploaded_file = self.openai.upload_pdf(file_path)
+                    file_id = uploaded_file.id
+                    self.logger.info(f"PDF 업로드 성공, 파일 ID 사용: {file_id}")
+                except Exception as upload_error:
+                    self.logger.warning(f"PDF 업로드 실패, base64 인코딩으로 대체: {str(upload_error)}")
+                    try:
+                        file_data = self.openai.prepare_pdf(file_path)
+                        self.logger.info("PDF base64 인코딩 성공")
+                    except Exception as prepare_error:
+                        self.logger.error(f"PDF 처리 완전 실패: {str(prepare_error)}")
+                        raise prepare_error
+            else:
+                self.logger.info(f"Processing with OpenAI model: {model}")
             
             # Create input message with file
             input = self.openai.create_input_message(prompt, file_id, file_data)
             
             # Generate response
-            response = self.openai.generate_response(
+            response, response_time = self.openai.generate_response(
                 input=input,
                 model=model,
                 temperature=temperature,
@@ -451,7 +576,7 @@ class LLMAPIClient:
             #     completion_tokens=token_usage["completion_tokens"],
             #     total_tokens=token_usage["total_tokens"]
             # )
-            return response
+            return {"response": response, "response_time": response_time}
             
         except Exception as e:
             raise

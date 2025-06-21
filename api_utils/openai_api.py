@@ -118,9 +118,12 @@ class OpenAIAPI:
         params = {
             "model": model,
             "input": input,
-            "temperature": temperature,
             "max_output_tokens": max_tokens
         }
+
+        # 특정 모델들은 temperature 파라미터를 지원하지 않음 (예: o3, o3-mini, o4-mini)
+        if model not in ["o3", "o3-mini", "o4-mini"]:
+            params["temperature"] = temperature
 
         # 시스템 지시사항이 제공된 경우 추가
         if system_instruction:
@@ -190,11 +193,8 @@ class OpenAIAPI:
             end_time = time.time()
             response_time = end_time - start_time
 
-            # 응답 객체에 response_time 속성 추가
-            response.response_time = response_time
-
             self.logger.info(f"OpenAI 모델로부터 응답 수신 성공: {model}, 응답 시간: {response_time:.2f}초")
-            return response
+            return response, response_time
 
         except Exception as e:
             self.logger.error(f"OpenAI의 {model}에서 응답 생성 오류: {str(e)}")
