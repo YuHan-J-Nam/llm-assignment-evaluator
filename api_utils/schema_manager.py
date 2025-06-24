@@ -85,7 +85,7 @@ class ResponseSchemaManager:
             # JSON으로 파싱 시도
             return json5.loads(response_text)
         
-        except json5.JSONDecodeError:
+        except Exception as e:
             logging.warning(f"{model}의 응답이 유효한 JSON이 아닙니다. 원시 텍스트를 반환합니다.")
             # 원시 텍스트를 구조화된 형식으로 반환
             return {
