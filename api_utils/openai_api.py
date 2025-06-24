@@ -166,7 +166,7 @@ class OpenAIAPI:
             response_schema (dict, optional): 응답 스키마
 
         Returns:
-            response: OpenAI API의 응답
+            dict: OpenAI 모델의 응답 및 메타데이터
         """
         # API 호출 파라미터 생성
         params = self.create_response_params(
@@ -194,7 +194,13 @@ class OpenAIAPI:
             response_time = end_time - start_time
 
             self.logger.info(f"OpenAI 모델로부터 응답 수신 성공: {model}, 응답 시간: {response_time:.2f}초")
-            return response, response_time
+            return {
+                "metadata": {
+                    "model": model,
+                    "response_time": response_time,
+                },
+                "response": response
+            }
 
         except Exception as e:
             self.logger.error(f"OpenAI의 {model}에서 응답 생성 오류: {str(e)}")
@@ -472,7 +478,7 @@ class OpenAIAPI:
             self.logger.error(f"OpenAI 배치 결과 조회 실패: {batch_id}, 오류: {str(e)}")
             raise
 
-    def process_batch_results(self, batch_id: str, output_file_text: str) -> Dict[str, Any]:
+    def process_batch_results(self, batch_id: str, model: str, output_file_text: str) -> Dict[str, Any]:
         """
         배치 요청의 결과를 처리합니다.
 
@@ -486,31 +492,59 @@ class OpenAIAPI:
         try:
             self.logger.info(f"OpenAI 배치 결과 처리 중: {batch_id}")
 
-            results = {}
-            for entry in output_file_text.splitlines():
-                json_entry = json.loads(entry)
-                custom_id = json_entry['custom_id']
-                response = json_entry['response']['body']
+            # results = {}
+            # for line in output_file_text.splitlines():
+            #     json_line = json.loads(line)
+            #     custom_id = json_line['custom_id']
+            #     response = json_line['response']['body']
+
+            #     if response['status'] == "completed":
+            #         # 성공적으로 완료된 응답 처리
+            #         results[custom_id] = {
+            #             "status": "completed",
+            #             "content": response['output'][0]['content'][0]['text'],
+            #             "usage": response['usage'],
+            #         }
+                            
+            #     elif response['status'] == "failed":
+            #         # 실패한 응답 처리
+            #         results[custom_id] = {
+            #             "status": "failed",
+            #             "error": response.error,
+            #         }
+            #     else:
+            #         # 기타 상태 처리
+            #         results[custom_id] = {
+            #             "status": response['status'],
+            #         }
+
+            # 결과 맵 생성 V2
+            results = []
+            for line in output_file_text.splitlines():
+                json_line = json.loads(line)
+                custom_id = json_line['custom_id']
+                response = json_line['response']['body']
+
+                result_dict = {
+                    "metadata": {
+                        "batch_id": batch_id,
+                        "custom_id": custom_id,
+                        "model": model
+                    }
+                }
 
                 if response['status'] == "completed":
                     # 성공적으로 완료된 응답 처리
-                    results[custom_id] = {
-                        "status": "completed",
-                        "content": response['output'][0]['content'][0]['text'],
-                        "usage": response['usage'],
-                    }
+                    result_dict["response"] = response
                             
                 elif response['status'] == "failed":
                     # 실패한 응답 처리
-                    results[custom_id] = {
-                        "status": "failed",
-                        "error": response.error,
-                    }
+                    result_dict["error"] = response.error
                 else:
                     # 기타 상태 처리
-                    results[custom_id] = {
-                        "status": response['status'],
-                    }
+                    result_dict["error"] = response["status"]
+
+                results.append(result_dict)
                         
             self.logger.info(f"OpenAI 배치 결과 처리 완료: {batch_id}, 결과 수: {len(results)}")
             return results
@@ -575,7 +609,7 @@ class OpenAIAPI:
             )
             
             # 결과 처리
-            results = self.process_batch_results(batch_id, responses)
+            results = self.process_batch_results(batch_id, model, responses)
 
             # 임시 파일 삭제
             temp_dir = os.path.join(PROJECT_ROOT, 'temp')

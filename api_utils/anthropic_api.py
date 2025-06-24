@@ -188,7 +188,7 @@ class AnthropicAPI:
             response_schema (dict, optional): 응답 스키마
 
         Returns:
-            response: Anthropic API의 응답
+            dict: Anthropic 모델의 응답 및 메타데이터
         """
         try:
             self.logger.info(f"Anthropic 모델에 요청 전송 중: {model}")
@@ -216,7 +216,13 @@ class AnthropicAPI:
             response_time = end_time - start_time
             
             self.logger.info(f"Anthropic 모델로부터 응답 수신 성공: {model}, 응답 시간: {response_time:.2f}초")
-            return response, response_time
+            return {
+                "metadata": {
+                    "model": model,
+                    "response_time": response_time,
+                },
+                "response": response
+            }
             
         except Exception as e:
             self.logger.error(f"Anthropic의 {model}에서 응답 생성 오류: {str(e)}")
@@ -383,7 +389,7 @@ class AnthropicAPI:
             self.logger.error(f"Anthropic 배치 결과 조회 실패: {batch_id}, 오류: {str(e)}")
             raise
 
-    def process_batch_results(self, batch_id: str, responses: Any) -> Dict[str, Any]:
+    def process_batch_results(self, batch_id: str, model: str, responses: Any) -> Dict[str, Any]:
         """
         배치 요청의 결과를 처리합니다.
 
@@ -397,39 +403,68 @@ class AnthropicAPI:
             self.logger.info(f"Anthropic 배치 결과 처리 중: {batch_id}")
 
             # 결과 맵 생성
-            results = {}
+            # results = {}
+            # for response in responses:
+            #     custom_id = response.custom_id
+            #     match response.result.type:
+            #         case "succeeded":
+            #             # JSON 문자열을 파싱하여 딕셔너리로 변환
+            #             raw_content = response.result.message.content[0].text
+            #             try:
+            #                 content = re.sub(r"^```json\s*|\s*```$", "", raw_content, flags=re.DOTALL).strip()
+            #                 content = json.loads(content)
+            #             except json.JSONDecodeError as e:
+            #                 self.logger.error(f"{custom_id} JSON 파싱 오류: {e}")
+            #                 content = raw_content   # JSON 파싱 실패 시 원본 문자열 사용
+
+            #             results[custom_id] = {
+            #                 "status": response.result.type,
+            #                 "content": content,
+            #                 "usage": response.result.message.usage,
+            #             }
+            #         case "errored":
+            #             results[custom_id] = {
+            #                 "status": response.result.type,
+            #                 "error_type": response.result.error.type,
+            #                 "error_message": response.result.error.message,
+            #             }
+            #         case "expired" | "canceled":
+            #             results[custom_id] = {
+            #                 "status": response.result.type,
+            #             }
+            #         case _:
+            #             results[custom_id] = {
+            #                 "status": "Unknown"
+            #             }
+
+            # 결과 맵 생성 V2
+            results = []
             for response in responses:
+                # 배치 결과의 메타데이터 추출
                 custom_id = response.custom_id
+                result_dict = {
+                    "metadata": {
+                        "batch_id": batch_id,
+                        "custom_id": custom_id,
+                        "model": model
+                    }
+                }
+
+                # 결과 상태에 따라 처리
                 match response.result.type:
                     case "succeeded":
-                        # JSON 문자열을 파싱하여 딕셔너리로 변환
-                        raw_content = response.result.message.content[0].text
-                        try:
-                            content = re.sub(r"^```json\s*|\s*```$", "", raw_content, flags=re.DOTALL).strip()
-                            content = json.loads(content)
-                        except json.JSONDecodeError as e:
-                            self.logger.error(f"{custom_id} JSON 파싱 오류: {e}")
-                            content = raw_content  # JSON 파싱 실패 시 원본 문자열 사용
-
-                        results[custom_id] = {
-                            "status": response.result.type,
-                            "content": content,
-                            "usage": response.result.message.usage,
-                        }
+                        result_dict["response"] = response.result.message
                     case "errored":
-                        results[custom_id] = {
-                            "status": response.result.type,
-                            "error_type": response.result.error.type,
-                            "error_message": response.result.error.message,
+                        result_dict["error"] = {
+                            "type": response.result.error.type,
+                            "message": response.result.error.message
                         }
                     case "expired" | "canceled":
-                        results[custom_id] = {
-                            "status": response.result.type,
-                        }
+                        result_dict["error"] = response.result.type
                     case _:
-                        results[custom_id] = {
-                            "status": "Unknown"
-                        }
+                        result_dict["error"] = response.result.type
+
+                results.append(result_dict)
                         
             self.logger.info(f"Anthropic 배치 결과 처리 완료: {batch_id}, 결과 수: {len(results)}")
             return results
@@ -492,7 +527,8 @@ class AnthropicAPI:
                 wait_for_completion=wait_for_completion,
                 poll_interval=poll_interval
             )
-            results = self.process_batch_results(batch_id, responses)
+            # 배치 결과 처리
+            results = self.process_batch_results(batch_id, model, responses)
 
             return batch_id, results
             

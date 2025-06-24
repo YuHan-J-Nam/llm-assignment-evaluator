@@ -126,7 +126,7 @@ class LLMAPIClient:
             thinking_budget: Optional token budget for thinking
             
         Returns:
-            Dictionary mapping model names to their responses
+            List of dictionaries containing model responses and metadata
         """
         tasks = []
         loop = asyncio.get_event_loop()
@@ -190,14 +190,31 @@ class LLMAPIClient:
             
             tasks.append((model, task))
         
-        # Gather results
-        results = {}
+        # # Gather results
+        # results = {}
+        # for model, task in tasks:
+        #     try:
+        #         results[model] = await task
+        #     except Exception as e:
+        #         self.logger.error(f"Error processing with model {model}: {str(e)}")
+        #         results[model] = {"error": str(e)}
+
+        # Gather results v2
+        results = []
         for model, task in tasks:
             try:
-                results[model] = await task
+                response_dict = await task
+                response_dict["metadata"]["timestamp"] = datetime.now().isoformat()
+                results.append(response_dict)
             except Exception as e:
                 self.logger.error(f"Error processing with model {model}: {str(e)}")
-                results[model] = {"error": str(e)}
+                results.append({
+                    "metadata": {
+                        "model": model,
+                        "timestamp": datetime.now().isoformat()
+                    },
+                    "request_error": str(e)
+                })
         
         return results
     
@@ -292,25 +309,34 @@ class LLMAPIClient:
         
         return results
     
-    def save_results(self, results: Dict[str, Any], file_path: str, essay_id: Optional[str]= None) -> None:
+    def save_results(self, results: Dict[str, Any], file_path: str, **kwargs) -> None:
         """
         Save the results of API calls to a JSON file.
-        
+
         Args:
             results: Dictionary containing model responses
             file_path: Path to save the results JSON file
-            essay_id: Optional essay ID to include in the results
+            kwargs: Additional arguments (e.g., essay_id, batch_id, etc.)
         """
         try:
-            with open(file_path, 'w') as f:
-                f.write(f"Essay ID: {essay_id}\n\n")
-                for model, response in results.items():
-                    f.write(f"Model: {model}\n")
-                    if 'error' in response:
-                        f.write(f"Error: {response['error']}\n")
-                    elif 'response' in response:
-                        f.write(f"Response: {response['response'].model_dump_json(indent=2)}\n")
-                        f.write(f"Response Time: {response['response_time']:.2f} seconds\n\n")
+            output = {k: v for k, v in kwargs.items()}
+            output["Responses"] = []
+            for model, response in results.items():
+                entry = {
+                    "Model": model,
+                    "Response": (
+                    response['response'].model_dump_json(indent=2)
+                    if 'response' in response else None
+                    ),
+                    "Response_time": (
+                    response['response_time']
+                    if 'response' in response else None
+                    ),
+                    "Error": response['error'] if 'error' in response else None
+                }
+            output["Responses"].append(entry)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(output, f, ensure_ascii=False, indent=2)
             self.logger.info(f"Results saved to {file_path}")
         except Exception as e:
             self.logger.error(f"Error saving results to file {file_path}: {str(e)}")

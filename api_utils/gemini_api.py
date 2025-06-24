@@ -188,7 +188,7 @@ class GeminiAPI:
             response_schema (dict, optional): 응답 스키마
 
         Returns:
-            response: Gemini API의 응답
+            dict: Gemini 모델의 응답 및 메타데이터
         """
         try:
             self.logger.info(f"Gemini 모델에 요청 전송 중: {model}")
@@ -217,7 +217,13 @@ class GeminiAPI:
             response_time = end_time - start_time
             
             self.logger.info(f"Gemini 모델로부터 응답 수신 성공: {model}, 응답 시간: {response_time:.2f}초")
-            return response, response_time
+            return {
+                "metadata": {
+                    "model": model,
+                    "response_time": response_time,
+                },
+                "response": response
+            }
             
         except Exception as e:
             self.logger.error(f"Gemini의 {model}에서 응답 생성 오류: {str(e)}")
