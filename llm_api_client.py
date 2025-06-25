@@ -190,16 +190,7 @@ class LLMAPIClient:
             
             tasks.append((model, task))
         
-        # # Gather results
-        # results = {}
-        # for model, task in tasks:
-        #     try:
-        #         results[model] = await task
-        #     except Exception as e:
-        #         self.logger.error(f"Error processing with model {model}: {str(e)}")
-        #         results[model] = {"error": str(e)}
-
-        # Gather results v2
+        # Gather results
         results = []
         for model, task in tasks:
             try:
@@ -309,118 +300,131 @@ class LLMAPIClient:
         
         return results
     
-    def save_results(self, results: Dict[str, Any], file_path: str, **kwargs) -> None:
+    def save_results(self, results: List[Dict[str, Any]], file_path: str) -> None:
         """
         Save the results of API calls to a JSON file.
 
         Args:
-            results: Dictionary containing model responses
+            results: List of dictionaries containing model responses and metadata
             file_path: Path to save the results JSON file
-            kwargs: Additional arguments (e.g., essay_id, batch_id, etc.)
         """
         try:
-            output = {k: v for k, v in kwargs.items()}
-            output["Responses"] = []
-            for model, response in results.items():
-                entry = {
-                    "Model": model,
-                    "Response": (
-                    response['response'].model_dump_json(indent=2)
-                    if 'response' in response else None
-                    ),
-                    "Response_time": (
-                    response['response_time']
-                    if 'response' in response else None
-                    ),
-                    "Error": response['error'] if 'error' in response else None
-                }
-            output["Responses"].append(entry)
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(output, f, ensure_ascii=False, indent=2)
+                json.dump(results, f, ensure_ascii=False, indent=2)
             self.logger.info(f"Results saved to {file_path}")
         except Exception as e:
             self.logger.error(f"Error saving results to file {file_path}: {str(e)}")
             raise
 
-    def process_results(self, results: Dict[str, Any]) -> Dict[str, Any]:
+    def process_results(self, results: List[Dict[str, Any]], custom_id_func: Optional[callable] = None, **kwargs) -> List[Dict[str, Any]]:
         """
         Process the results of API calls to extract relevant information.
         
         Args:
-            results: Dictionary containing model responses
+            results: List of dictionaries containing model responses and metadata
+            custom_id_func: Optional function to extract information from custom_id
+            **kwargs: Additional metadata to include in the processed results
             
         Returns:
-            Processed results with relevant information extracted
+            List of dictionaries with processed results containing metadata(model name), response text, and token usage
         """
-        processed_results = {}
-        for model, entry in results.items():
-            if 'error' in entry:
-                continue  # Skip models that returned errors
+        processed_results = []
+        for result_dict in results:
+            if 'error' in result_dict:
+                continue
+            elif 'response' not in result_dict:
+                continue
+            
+            # Extract model name and response
+            model = result_dict['metadata']['model']
             try:
                 if model in MODEL_DICT['Gemini']['supported_models']:
-                    processed_results[model] = {
-                        "text": entry['response'].candidates[0].content.parts[0].text,
-                        "token_usage": json.loads(entry['response'].usage_metadata.model_dump_json()),
-                        "response_time": entry['response_time']
-                    }
+                    text = result_dict['response'].candidates[0].content.parts[0].text
+                    token_usage = json.loads(result_dict['response'].usage_metadata.model_dump_json())
                 elif model in MODEL_DICT['Anthropic']['supported_models']:
-                    processed_results[model] = {
-                        "text": entry['response'].content[0].text,
-                        "token_usage": json.loads(entry['response'].usage.model_dump_json()),
-                        "response_time": entry['response_time']
-                    }
+                    text = result_dict['response'].content[0].text
+                    token_usage = json.loads(result_dict['response'].usage.model_dump_json())
                 elif model in MODEL_DICT['OpenAI']['supported_models']:
                     # OpenAI responses with reasoning can have multiple outputs, handle accordingly
                     output_idx = 0 if model not in MODEL_DICT['OpenAI']['thinking_models'] else 1
-                    processed_results[model] = {
-                        "text": entry['response'].output[output_idx].content[0].text,
-                        "token_usage": json.loads(entry['response'].usage.model_dump_json()),
-                        "response_time": entry['response_time']
-                    }
+                    text = result_dict['response'].output[output_idx].content[0].text
+                    token_usage = json.loads(result_dict['response'].usage.model_dump_json())
             except Exception as e:
                 self.logger.error(f"Skipping model {model} due to processing error: {str(e)}")
-                continue
+                text = ""
+                token_usage = {}
 
-            processed_results[model]['text'] = self.schema_manager.parse_response(
-                response_text=processed_results[model]['text'], model=model)
+            # If custom_id_func is provided, extract additional metadata
+            if custom_id_func:
+                try:
+                    custom_id = result_dict['metadata']['custom_id']
+                    additional_info = custom_id_func(custom_id)
+                    kwargs.update(additional_info)
+                except Exception as e:
+                    pass
+
+            # Create metadata dictionary with additional information
+            metadata = result_dict['metadata'].copy()
+            metadata.update(kwargs)
+
+            # Parse the response text using the schema manager
+            parsed_text = self.schema_manager.parse_response(response_text=text, model=model)
+
+            processed_results.append({
+                "metadata": metadata,
+                "response": {
+                    "text": parsed_text,
+                    "token_usage": token_usage
+                }
+            })
             
         return processed_results
     
-    def extract_scores(self, results: Dict[str, Any], essay_id: Optional[str]= None) -> Dict[str, float]:
+    def extract_evaluation_scores(self, processed_results: List[Dict[str, Any]]) -> pd.DataFrame:
         """
         Extract scores from results of API calls.
         
         Args:
-            results: Dictionary containing model responses
-            essay_id: Optional essay ID to filter results
+            processed_results: List of dictionaries containing processed results with metadata and response text
             
         Returns:
-            Dictionary mapping model names to their scores
+            pd.DataFrame: DataFrame containing extracted scores and metadata
         """
-        processed_results = self.process_results(results)
-        if not processed_results:
-            self.logger.warning("No results to process")
-            return {}
-
         all_results = []
 
         # 결과 처리
         try:
-            for model, result in processed_results.items():
-                if 'raw_text' in result['text']:
+            for result_dict in processed_results:
+                if 'raw_text' in result_dict['response']['text']:
                     continue  # JSON 파싱 실패로 인해 raw_text가 있는 경우 건너뜀
 
-                result_data = {
-                    "essay_id": essay_id,
-                    "model": model,
-                    "response_time": result['response_time']
-                }
+                data_dict = result_dict['metadata'].copy()
+                model = data_dict.get('model', 'unknown_model')
+                response = result_dict['response']['text']
 
-                for item in result['text']['checklist']:
-                    for sub_item in item['subcategories']:
-                        result_data[f"{sub_item['name']}"] = sub_item['score']
+                # Extract scores from the evaluation
+                def _extract_scores_recursive(item, data_dict):
+                    """Recursively extract name and score pairs from nested structures"""
+                    if isinstance(item, dict):
+                        # Check if this dict has both 'name' and 'score' keys
+                        if 'name' in item and 'score' in item:
+                            data_dict[item['name']] = item['score']
+                        else:
+                            # Recursively check all values in the dict
+                            for value in item.values():
+                                _extract_scores_recursive(value, data_dict)
+                    elif isinstance(item, list):
+                        # Recursively check all items in the list
+                        for sub_item in item:
+                            _extract_scores_recursive(sub_item, data_dict)
 
-                all_results.append(result_data)
+                _extract_scores_recursive(response['evaluation'], data_dict)
+                
+                if 'text' not in response or 'evaluation' not in response['text']:
+                    self.logger.warning(f"Skipping model {model} due to missing checklist in response")
+                    continue
+
+                all_results.append(data_dict)
 
             # 결과를 DataFrame으로 반환
             return pd.DataFrame(all_results)
@@ -428,7 +432,7 @@ class LLMAPIClient:
         except Exception as e:
             self.logger.error(f"Error extracting scores: {str(e)}")
             return pd.DataFrame()
-    
+        
     def _process_with_gemini(
         self, 
         file_path: Optional[str], 
@@ -455,7 +459,7 @@ class LLMAPIClient:
             contents = self.gemini.create_input_message(prompt, file_obj)
             
             # Generate response
-            response, response_time = self.gemini.generate_response(
+            response_dict = self.gemini.generate_response(
                 input=contents,
                 model=model,
                 temperature=temperature,
@@ -466,17 +470,7 @@ class LLMAPIClient:
                 response_schema=response_schema
             )
             
-            # # Extract token usage from response
-            # token_usage = self.token_counter.extract_token_usage_from_gemini_response(response, model)
-            
-            # # Log the token usage
-            # self.token_counter.log_token_usage(
-            #     model=model,
-            #     prompt_tokens=token_usage["prompt_tokens"],
-            #     completion_tokens=token_usage["completion_tokens"],
-            #     total_tokens=token_usage["total_tokens"]
-            # )
-            return {"response": response, "response_time": response_time}
+            return response_dict
             
         except Exception as e:
             raise
@@ -518,7 +512,7 @@ class LLMAPIClient:
             messages = self.anthropic.create_input_message(prompt, file_data=file_data)
             
             # Generate response
-            response, response_time = self.anthropic.generate_response(
+            response_dict = self.anthropic.generate_response(
                 input=messages,
                 model=model,
                 temperature=temperature,
@@ -529,17 +523,7 @@ class LLMAPIClient:
                 response_schema=response_schema
             )
             
-            # # Extract token usage from response
-            # token_usage = self.token_counter.extract_token_usage_from_anthropic_response(response, model)
-            
-            # # Log the token usage
-            # self.token_counter.log_token_usage(
-            #     model=model,
-            #     prompt_tokens=token_usage["prompt_tokens"],
-            #     completion_tokens=token_usage["completion_tokens"],
-            #     total_tokens=token_usage["total_tokens"]
-            # )
-            return {"response": response, "response_time": response_time}
+            return response_dict
             
         except Exception as e:
             raise
@@ -581,7 +565,7 @@ class LLMAPIClient:
             input = self.openai.create_input_message(prompt, file_id, file_data)
             
             # Generate response
-            response, response_time = self.openai.generate_response(
+            response_dict = self.openai.generate_response(
                 input=input,
                 model=model,
                 temperature=temperature,
@@ -592,17 +576,7 @@ class LLMAPIClient:
                 response_schema=response_schema
             )
             
-            # # Extract token usage from response
-            # token_usage = self.token_counter.extract_token_usage_from_openai_response(response, model)
-            
-            # # Log the token usage
-            # self.token_counter.log_token_usage(
-            #     model=model,
-            #     prompt_tokens=token_usage["prompt_tokens"],
-            #     completion_tokens=token_usage["completion_tokens"],
-            #     total_tokens=token_usage["total_tokens"]
-            # )
-            return {"response": response, "response_time": response_time}
+            return response_dict
             
         except Exception as e:
             raise
@@ -610,3 +584,4 @@ class LLMAPIClient:
     def get_token_usage_summary(self):
         """Get a summary of token usage across all API calls"""
         return self.token_counter.get_usage_summary()
+    

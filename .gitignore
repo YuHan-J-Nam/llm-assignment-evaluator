@@ -38,5 +38,6 @@ temp/
 # Ignore all checklists and evaluations
 checklists/
 evaluations/
+auto_evaluation_results/
 
 

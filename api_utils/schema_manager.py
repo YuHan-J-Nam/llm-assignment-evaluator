@@ -79,7 +79,7 @@ class ResponseSchemaManager:
         """응답 텍스트를 파싱하여 구조화된 데이터 추출"""
         try:
             # 텍스트가 ```json으로 시작하고 끝나는 경우 제거
-            if response_text.startswith("```json") and response_text.endswith("```"):
+            if "```json" in response_text:
                 response_text = re.sub(r"^```json\s*|\s*```$", "", response_text, flags=re.DOTALL).strip()
 
             # JSON으로 파싱 시도

@@ -347,8 +347,8 @@ class AnthropicAPI:
             wait_for_completion (bool): 배치 처리가 완료될 때까지 대기할지 여부
             poll_interval (int): 대기 중 폴링 간격(초)
 
-        Yields:
-            Dict[str, Any]: 각 요청에 대한 결과
+        Returns:
+            Iterator[Dict[str, Any]]: 배치 요청의 결과 스트림
         """
         try:
             # 배치 상태 초기 확인
@@ -394,10 +394,12 @@ class AnthropicAPI:
         배치 요청의 결과를 처리합니다.
 
         Args:
+            batch_id (str): 처리할 배치 ID
+            model (str): 사용된 모델 이름
             responses: self.client.messages.batches.results(batch_id)의 결과 (anthropic._decoders.jsonl.JSONLDecoder)
 
         Returns:
-            Dict[str, Any]: 배치 결과 맵(custom_id -> 결과)
+            List[Dict[str, Any]]: 각 요청에 대한 처리된 결과들의 목록
         """
         try:
             self.logger.info(f"Anthropic 배치 결과 처리 중: {batch_id}")
@@ -500,7 +502,9 @@ class AnthropicAPI:
             poll_interval (int): 대기 중 폴링 간격(초)
 
         Returns:
-            Tuple[str, Dict[str, Any]]: 배치 ID와 결과 맵(custom_id -> 결과)
+            Tuple[str, List[Dict[str, Any]]]:
+                - str: 생성된 배치 요청의 ID
+                - List[Dict[str, Any]]: 각 요청에 대한 처리된 결과들의 목록
         """
         try:
             # 배치 요청 생성

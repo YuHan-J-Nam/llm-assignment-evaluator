@@ -484,10 +484,11 @@ class OpenAIAPI:
 
         Args:
             batch_id (str): 배치 ID
-            responses (List[Dict[str, Any]]): 배치 응답 결과 목록
+            model (str): 사용된 모델 이름
+            output_file_text (str): 배치 결과가 저장된 JSONL 형식의 텍스트
 
         Returns:
-            Dict[str, Any]: 배치 결과 맵(custom_id -> 결과)
+            List[Dict[str, Any]]: 처리된 결과 목록
         """
         try:
             self.logger.info(f"OpenAI 배치 결과 처리 중: {batch_id}")
@@ -580,7 +581,9 @@ class OpenAIAPI:
             poll_interval (int): 대기 중 폴링 간격(초)
 
         Returns:
-            Tuple[str, Dict[str, Any]]: 배치 ID와 결과 맵(custom_id -> 결과)
+            Tuple[str, List[Dict[str, Any]]]:
+                - str: 생성된 배치 요청의 ID
+                - List[Dict[str, Any]]: 각 요청에 대한 처리된 결과들의 목록
         """
         try:
             # 배치 요청 생성
