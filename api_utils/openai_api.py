@@ -493,33 +493,7 @@ class OpenAIAPI:
         try:
             self.logger.info(f"OpenAI 배치 결과 처리 중: {batch_id}")
 
-            # results = {}
-            # for line in output_file_text.splitlines():
-            #     json_line = json.loads(line)
-            #     custom_id = json_line['custom_id']
-            #     response = json_line['response']['body']
-
-            #     if response['status'] == "completed":
-            #         # 성공적으로 완료된 응답 처리
-            #         results[custom_id] = {
-            #             "status": "completed",
-            #             "content": response['output'][0]['content'][0]['text'],
-            #             "usage": response['usage'],
-            #         }
-                            
-            #     elif response['status'] == "failed":
-            #         # 실패한 응답 처리
-            #         results[custom_id] = {
-            #             "status": "failed",
-            #             "error": response.error,
-            #         }
-            #     else:
-            #         # 기타 상태 처리
-            #         results[custom_id] = {
-            #             "status": response['status'],
-            #         }
-
-            # 결과 맵 생성 V2
+            # 결과 맵 생성
             results = []
             for line in output_file_text.splitlines():
                 json_line = json.loads(line)

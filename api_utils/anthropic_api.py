@@ -405,41 +405,6 @@ class AnthropicAPI:
             self.logger.info(f"Anthropic 배치 결과 처리 중: {batch_id}")
 
             # 결과 맵 생성
-            # results = {}
-            # for response in responses:
-            #     custom_id = response.custom_id
-            #     match response.result.type:
-            #         case "succeeded":
-            #             # JSON 문자열을 파싱하여 딕셔너리로 변환
-            #             raw_content = response.result.message.content[0].text
-            #             try:
-            #                 content = re.sub(r"^```json\s*|\s*```$", "", raw_content, flags=re.DOTALL).strip()
-            #                 content = json.loads(content)
-            #             except json.JSONDecodeError as e:
-            #                 self.logger.error(f"{custom_id} JSON 파싱 오류: {e}")
-            #                 content = raw_content   # JSON 파싱 실패 시 원본 문자열 사용
-
-            #             results[custom_id] = {
-            #                 "status": response.result.type,
-            #                 "content": content,
-            #                 "usage": response.result.message.usage,
-            #             }
-            #         case "errored":
-            #             results[custom_id] = {
-            #                 "status": response.result.type,
-            #                 "error_type": response.result.error.type,
-            #                 "error_message": response.result.error.message,
-            #             }
-            #         case "expired" | "canceled":
-            #             results[custom_id] = {
-            #                 "status": response.result.type,
-            #             }
-            #         case _:
-            #             results[custom_id] = {
-            #                 "status": "Unknown"
-            #             }
-
-            # 결과 맵 생성 V2
             results = []
             for response in responses:
                 # 배치 결과의 메타데이터 추출

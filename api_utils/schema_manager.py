@@ -1,6 +1,6 @@
 import re
-import json5
-import json
+import json5, jsonschema
+from json_repair import repair_json
 import logging
 import copy
 
@@ -75,20 +75,87 @@ class ResponseSchemaManager:
             }
         }
     
-    def parse_response(self, response_text, model: str = None):
-        """응답 텍스트를 파싱하여 구조화된 데이터 추출"""
-        try:
-            # 텍스트가 ```json으로 시작하고 끝나는 경우 제거
-            if "```json" in response_text:
-                response_text = re.sub(r"^```json\s*|\s*```$", "", response_text, flags=re.DOTALL).strip()
-
-            # JSON으로 파싱 시도
-            return json5.loads(response_text)
+    def parse_response(self, response_text: str, schema: dict, model: str = None) -> dict:
+        """
+        응답 텍스트를 파싱하여 구조화된 데이터 추출
         
+        Args:
+            response_text: 파싱할 응답 텍스트
+            schema: 검증에 사용할 JSON 스키마
+            model: 모델명 (로깅용)
+        
+        Returns:
+            파싱된 JSON 데이터 또는 에러 정보가 포함된 딕셔너리
+        """
+        if not response_text or not isinstance(response_text, str):
+            return {"error": "잘못된 입력: response_text는 비어있지 않은 문자열이어야 합니다", "raw_text": response_text}
+        
+        # 코드 블록 제거
+        cleaned_text = self._remove_code_blocks(response_text)
+        
+        # JSON 파싱 시도
+        parsed_data = self._try_parse_json(cleaned_text, model)
+        if "error" not in parsed_data:
+            # 스키마 검증
+            validation_error = self.validate_response(parsed_data, schema)
+            if validation_error is None:
+                return parsed_data
+            else:
+                self.logger.warning(f"{model}의 응답이 스키마와 맞지 않습니다: {validation_error}")
+                return {"error": validation_error, "raw_text": response_text}
+        
+        # JSON 수리 시도
+        return self._attempt_json_repair(cleaned_text, schema, model, response_text)
+
+
+    def _remove_code_blocks(self, text: str) -> str:
+        """코드 블록 마커 제거"""
+        return re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.DOTALL).strip()
+
+    def _try_parse_json(self, text: str, model: str = None) -> dict:
+        """JSON 파싱 시도"""
+        try:
+            return json5.loads(text)
+        except ValueError as e:
+            self.logger.warning(f"{model}의 응답이 유효한 JSON이 아닙니다: {str(e)}")
+            return {"error": f"JSON 파싱 실패: {str(e)}"}
+
+    def _attempt_json_repair(self, text: str, schema: dict, model: str = None, original_text: str = "") -> dict:
+        """JSON 수리 시도"""
+        try:
+            repaired_text = repair_json(text, skip_json_loads=True)
+            parsed_data = json5.loads(repaired_text)
+            
+            validation_error = self.validate_response(parsed_data, schema)
+            if validation_error is None:
+                self.logger.info(f"{model}의 응답을 성공적으로 수리했습니다")
+                return parsed_data
+            else:
+                return {"error": validation_error, "raw_text": original_text}
+                
+        except ValueError as e:
+            self.logger.error(f"JSON 수리 실패: {str(e)}")
+            return {"error": f"JSON 수리 실패: {str(e)}", "raw_text": original_text}
+
+    def validate_response(self, response: dict, schema: dict) -> str | None:
+        """
+        응답이 주어진 스키마에 맞는지 검증
+        
+        Args:
+            response: 검증할 응답 데이터
+            schema: JSON 스키마
+        
+        Returns:
+            검증 에러 메시지 또는 None (성공시)
+        """
+        try:
+            jsonschema.validate(instance=response, schema=schema)
+            return None
+        except jsonschema.ValidationError as e:
+            error_msg = f"스키마 검증 실패: {e.message}"
+            self.logger.error(error_msg)
+            return error_msg
         except Exception as e:
-            logging.warning(f"{model}의 응답이 유효한 JSON이 아닙니다. 원시 텍스트를 반환합니다.")
-            # 원시 텍스트를 구조화된 형식으로 반환
-            return {
-                "raw_text": response_text,
-                "structured": False
-            }
+            error_msg = f"스키마 검증 중 예기치 않은 오류 발생: {str(e)}"
+            self.logger.error(error_msg)
+            return error_msg
