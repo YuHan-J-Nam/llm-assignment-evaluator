@@ -11,6 +11,7 @@ from api_utils.gemini_api import GeminiAPI
 from api_utils.anthropic_api import AnthropicAPI
 from api_utils.openai_api import OpenAIAPI
 from api_utils.token_counter import TokenCounter
+import copy
 
 MODEL_DICT = {
     "Gemini": {
@@ -299,7 +300,254 @@ class LLMAPIClient:
                 results[model] = {"error": str(e)}
         
         return results
-    
+
+    async def check_batch_status(
+        self,
+        batch_dict: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Check the status of multiple batch requests.
+        
+        Args:
+            batch_dict: Dictionary mapping model names to batch information
+                       Format: {'model_name': {'batch_id': 'batch_id', 'results': {}}}
+            
+        Returns:
+            Dictionary mapping model names to their batch status information
+        """
+        tasks = []
+        loop = asyncio.get_event_loop()
+        
+        for model, batch_info in batch_dict.items():
+            if 'batch_id' not in batch_info:
+                self.logger.error(f"No batch_id found for model {model}")
+                continue
+                
+            batch_id = batch_info['batch_id']
+            provider = self._get_provider_for_model(model)
+            
+            if not provider:
+                self.logger.error(f"Unknown model: {model}")
+                continue
+                
+            if provider == "Anthropic":
+                task = loop.run_in_executor(
+                    self.executor,
+                    lambda m=model, bid=batch_id: {
+                        'model': m,
+                        'status': self.anthropic.get_batch_status(bid)
+                    }
+                )
+                tasks.append(task)
+                
+            elif provider == "OpenAI":
+                task = loop.run_in_executor(
+                    self.executor,
+                    lambda m=model, bid=batch_id: {
+                        'model': m,
+                        'status': self.openai.get_batch_status(bid)
+                    }
+                )
+                tasks.append(task)
+        
+        # Gather results
+        status_results = {}
+        for task in tasks:
+            try:
+                result = await task
+                model = result['model']
+                status = result['status']
+                status_results[model] = status
+                
+                # Log status information
+                if model in MODEL_DICT['Anthropic']['supported_models']:
+                    processing_status = status.get('processing_status', 'unknown')
+                    request_counts = status.get('request_counts', {})
+                    self.logger.info(
+                        f"Anthropic batch {status['id']} (model: {model}) - "
+                        f"Status: {processing_status}, "
+                        f"Succeeded: {getattr(request_counts, 'succeeded', 0)}, "
+                        f"Errored: {getattr(request_counts, 'errored', 0)}, "
+                        f"Processing: {getattr(request_counts, 'processing', 0)}"
+                    )
+                elif model in MODEL_DICT['OpenAI']['supported_models']:
+                    batch_status = status.get('status', 'unknown')
+                    completed_count = status.get('completed_count', 0)
+                    failed_count = status.get('failed_count', 0)
+                    total_requests = status.get('total_requests', 0)
+                    self.logger.info(
+                        f"OpenAI batch {status['id']} (model: {model}) - "
+                        f"Status: {batch_status}, "
+                        f"Completed: {completed_count}/{total_requests}, "
+                        f"Failed: {failed_count}"
+                    )
+                    
+            except Exception as e:
+                self.logger.error(f"Error checking batch status for model {model}: {str(e)}")
+                status_results[model] = {"error": str(e)}
+        
+        return status_results
+
+    async def retrieve_batch_results(
+        self,
+        batch_dict: Dict[str, Dict[str, Any]],
+        wait_for_completion: bool = False,
+        poll_interval: int = 60
+    ) -> Dict[str, Any]:
+        """
+        Retrieve results for completed batch requests.
+        
+        Args:
+            batch_dict: Dictionary mapping model names to batch information
+            wait_for_completion: Whether to wait for batch completion
+            poll_interval: Polling interval for batch status checks
+            
+        Returns:
+            Dictionary mapping model names to their batch results
+        """
+        tasks = []
+        loop = asyncio.get_event_loop()
+        
+        for model, batch_info in batch_dict.items():
+            if 'batch_id' not in batch_info:
+                self.logger.error(f"No batch_id found for model {model}")
+                continue
+                
+            batch_id = batch_info['batch_id']
+            provider = self._get_provider_for_model(model)
+            
+            if not provider:
+                self.logger.error(f"Unknown model: {model}")
+                continue
+                
+            if provider == "Anthropic":
+                task = loop.run_in_executor(
+                    self.executor,
+                    lambda m=model, bid=batch_id: {
+                        'model': m,
+                        'batch_id': bid,
+                        'results': self.anthropic.get_batch_results(
+                            batch_id=bid,
+                            wait_for_completion=wait_for_completion,
+                            poll_interval=poll_interval
+                        )
+                    }
+                )
+                tasks.append(task)
+                
+            elif provider == "OpenAI":
+                task = loop.run_in_executor(
+                    self.executor,
+                    lambda m=model, bid=batch_id: {
+                        'model': m,
+                        'batch_id': bid,
+                        'results': self.openai.get_batch_results(
+                            batch_id=bid,
+                            wait_for_completion=wait_for_completion,
+                            poll_interval=poll_interval
+                        )
+                    }
+                )
+                tasks.append(task)
+        
+        # Gather results
+        retrieved_results = {}
+        for task in tasks:
+            try:
+                result = await task
+                model = result['model']
+                batch_id = result['batch_id']
+                results = result['results']
+                
+                retrieved_results[model] = {
+                    'batch_id': batch_id,
+                    'raw_results': results
+                }
+                
+                self.logger.info(f"Successfully retrieved batch results for model {model}, batch_id: {batch_id}")
+                
+            except Exception as e:
+                self.logger.error(f"Error retrieving batch results for model {model}: {str(e)}")
+                retrieved_results[model] = {"error": str(e)}
+        
+        return retrieved_results
+
+    async def process_batch_results(
+        self,
+        batch_results_dict: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Process the raw batch results into a standardized format.
+        
+        Args:
+            batch_results_dict: Dictionary containing raw batch results from retrieve_batch_results
+                              Format: {'model_name': {'batch_id': 'batch_id', 'raw_results': results}}
+            
+        Returns:
+            Dictionary mapping model names to their processed batch results
+        """
+        tasks = []
+        loop = asyncio.get_event_loop()
+        
+        for model, batch_data in batch_results_dict.items():
+            if 'error' in batch_data:
+                self.logger.error(f"Skipping processing for model {model} due to error: {batch_data['error']}")
+                continue
+                
+            if 'batch_id' not in batch_data or 'raw_results' not in batch_data:
+                self.logger.error(f"Missing batch_id or raw_results for model {model}")
+                continue
+                
+            batch_id = batch_data['batch_id']
+            raw_results = batch_data['raw_results']
+            provider = self._get_provider_for_model(model)
+            
+            if not provider:
+                self.logger.error(f"Unknown model: {model}")
+                continue
+                
+            if provider == "Anthropic":
+                task = loop.run_in_executor(
+                    self.executor,
+                    lambda m=model, bid=batch_id, results=raw_results: {
+                        'model': m,
+                        'processed_results': self.anthropic.process_batch_results(bid, m, results)
+                    }
+                )
+                tasks.append(task)
+                
+            elif provider == "OpenAI":
+                task = loop.run_in_executor(
+                    self.executor,
+                    lambda m=model, bid=batch_id, results=raw_results: {
+                        'model': m,
+                        'processed_results': self.openai.process_batch_results(bid, m, results)
+                    }
+                )
+                tasks.append(task)
+        
+        # Gather results
+        processed_results = {}
+        for task in tasks:
+            try:
+                result = await task
+                model = result['model']
+                processed_data = result['processed_results']
+                
+                processed_results[model] = processed_data
+                
+                # Log processing summary
+                if isinstance(processed_data, list):
+                    self.logger.info(f"Successfully processed {len(processed_data)} batch results for model {model}")
+                else:
+                    self.logger.info(f"Successfully processed batch results for model {model}")
+                    
+            except Exception as e:
+                self.logger.error(f"Error processing batch results for model {model}: {str(e)}")
+                processed_results[model] = {"error": str(e)}
+        
+        return processed_results
+
     def save_results(self, results: List[Dict[str, Any]], file_path: str) -> None:
         """
         Save the results of API calls to a JSON file.
@@ -308,20 +556,30 @@ class LLMAPIClient:
             results: List of dictionaries containing model responses and metadata
             file_path: Path to save the results JSON file
         """
+        # Create a deep copy to prevent modifying original results
+        results_copy = copy.deepcopy(results)
+        
+        # Convert results to JSON serializable format
+        for result in results_copy:
+            if 'response' in result:
+                # Convert any non-serializable objects to string
+                result['response'] = result['response'].model_dump(mode='json')
+        
         try:
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(results, f, ensure_ascii=False, indent=2)
-            self.logger.info(f"Results saved to {file_path}")
+                json.dump(results_copy, f, ensure_ascii=False, indent=2)
+                self.logger.info(f"Results saved to {file_path}")
         except Exception as e:
             self.logger.error(f"Error saving results to file {file_path}: {str(e)}")
             raise
 
-    def process_results(self, results: List[Dict[str, Any]], custom_id_func: Optional[callable] = None, **kwargs) -> List[Dict[str, Any]]:
+    def process_results(self, results: List[Dict[str, Any]], schema: Dict, custom_id_func: Optional[callable] = None, **kwargs) -> List[Dict[str, Any]]:
         """
         Process the results of API calls to extract relevant information.
         
         Args:
             results: List of dictionaries containing model responses and metadata
+            schema: JSON schema to validate and parse the response text
             custom_id_func: Optional function to extract information from custom_id
             **kwargs: Additional metadata to include in the processed results
             
@@ -347,8 +605,13 @@ class LLMAPIClient:
                 elif model in MODEL_DICT['OpenAI']['supported_models']:
                     # OpenAI responses with reasoning can have multiple outputs, handle accordingly
                     output_idx = 0 if model not in MODEL_DICT['OpenAI']['thinking_models'] else 1
-                    text = result_dict['response'].output[output_idx].content[0].text
-                    token_usage = json.loads(result_dict['response'].usage.model_dump_json())
+                    # check if result_dict['response'] is dict or object
+                    if isinstance(result_dict['response'], dict):
+                        text = result_dict['response']['output'][output_idx]['content'][0]['text']
+                        token_usage = result_dict['response']['usage']
+                    else:
+                        text = result_dict['response'].output[output_idx].content[0].text
+                        token_usage = json.loads(result_dict['response'].usage.model_dump_json())
             except Exception as e:
                 self.logger.error(f"Skipping model {model} due to processing error: {str(e)}")
                 text = ""
@@ -368,7 +631,7 @@ class LLMAPIClient:
             metadata.update(kwargs)
 
             # Parse the response text using the schema manager
-            parsed_text = self.schema_manager.parse_response(response_text=text, model=model)
+            parsed_text = self.schema_manager.parse_response(response_text=text, schema=schema, model=model)
 
             processed_results.append({
                 "metadata": metadata,
@@ -395,12 +658,12 @@ class LLMAPIClient:
         # 결과 처리
         try:
             for result_dict in processed_results:
-                if 'raw_text' in result_dict['response']['text']:
+                response = result_dict.get('response', {})
+                if 'raw_text' in response['text']:
                     continue  # JSON 파싱 실패로 인해 raw_text가 있는 경우 건너뜀
 
                 data_dict = result_dict['metadata'].copy()
                 model = data_dict.get('model', 'unknown_model')
-                response = result_dict['response']['text']
 
                 # Extract scores from the evaluation
                 def _extract_scores_recursive(item, data_dict):
@@ -418,11 +681,11 @@ class LLMAPIClient:
                         for sub_item in item:
                             _extract_scores_recursive(sub_item, data_dict)
 
-                _extract_scores_recursive(response['evaluation'], data_dict)
-                
                 if 'text' not in response or 'evaluation' not in response['text']:
-                    self.logger.warning(f"Skipping model {model} due to missing checklist in response")
+                    self.logger.warning(f"Skipping model {model} due to missing evaluation result in response")
                     continue
+                else:
+                    _extract_scores_recursive(response['text']['evaluation'], data_dict)
 
                 all_results.append(data_dict)
 
@@ -450,7 +713,7 @@ class LLMAPIClient:
         try:
             file_obj = None
             if file_path is not None:
-                self.logger.info(f"Processing with Gemini (with PDF): {file_path}")
+                self.logger.info(f"Processing with Gemini {model} (with PDF): {file_path}")
                 file_obj = self.gemini.upload_pdf(file_path)
             else:
                 self.logger.info(f"Processing with Gemini model: {model}")
@@ -492,7 +755,7 @@ class LLMAPIClient:
             file_id, file_data = None, None
 
             if file_path is not None:
-                self.logger.info(f"Processing with Anthropic (with PDF): {file_path}")
+                self.logger.info(f"Processing with Anthropic {model} (with PDF): {file_path}")
                 try:
                     uploaded_file = self.anthropic.upload_pdf(file_path)
                     file_id = uploaded_file.id
@@ -545,7 +808,7 @@ class LLMAPIClient:
             file_id, file_data = None, None
 
             if file_path is not None:
-                self.logger.info(f"Processing with OpenAI (with PDF): {file_path}")
+                self.logger.info(f"Processing with OpenAI {model} (with PDF): {file_path}")
                 try:
                     uploaded_file = self.openai.upload_pdf(file_path)
                     file_id = uploaded_file.id

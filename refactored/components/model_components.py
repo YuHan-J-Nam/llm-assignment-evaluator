@@ -24,9 +24,9 @@ class ModelSelectionComponent(BaseComponent):
         )
         
         self.claude_model_selection = widgets.Dropdown(
-            options=MODEL_OPTIONS['CLAUDE'],
-            value=MODEL_DEFAULTS['CLAUDE'],
-            description='Claude 모델:'
+            options=MODEL_OPTIONS['ANTHROPIC'],
+            value=MODEL_DEFAULTS['ANTHROPIC'],
+            description='Anthropic 모델:'
         )
         
         self.openai_model_selection = widgets.Dropdown(
@@ -37,7 +37,7 @@ class ModelSelectionComponent(BaseComponent):
         
         # Create model parameters
         self.gemini_params = self.create_model_params_widgets('Gemini')
-        self.claude_params = self.create_model_params_widgets('Claude')
+        self.claude_params = self.create_model_params_widgets('Anthropic')
         self.openai_params = self.create_model_params_widgets('OpenAI')
         
         # Create thinking/reasoning options
@@ -56,7 +56,7 @@ class ModelSelectionComponent(BaseComponent):
         # Create save buttons
         self.save_buttons = {
             'Gemini': widgets.Button(description="Gemini 결과 저장", disabled=True),
-            'Claude': widgets.Button(description="Claude 결과 저장", disabled=True),
+            'Anthropic': widgets.Button(description="Anthropic 결과 저장", disabled=True),
             'OpenAI': widgets.Button(description="OpenAI 결과 저장", disabled=True)
         }
         
@@ -102,7 +102,7 @@ class ModelSelectionComponent(BaseComponent):
             self.claude_model_selection, 
             self.claude_params['temperature'], 
             self.claude_params['max_tokens'],
-            self.save_buttons['Claude'],
+            self.save_buttons['Anthropic'],
             self.openai_model_selection, 
             self.openai_params['temperature'], 
             self.openai_params['max_tokens'],
@@ -128,11 +128,11 @@ class ModelSelectionComponent(BaseComponent):
                     self.save_buttons['Gemini']
                 ]),
                 widgets.VBox([
-                    widgets.HTML("<h4>Claude</h4>"),
+                    widgets.HTML("<h4>Anthropic</h4>"),
                     self.claude_model_selection, 
                     self.claude_params['temperature'], 
                     self.claude_params['max_tokens'], 
-                    self.save_buttons['Claude']
+                    self.save_buttons['Anthropic']
                 ]),
                 widgets.VBox([
                     widgets.HTML("<h4>OpenAI</h4>"),
@@ -152,7 +152,7 @@ class ModelSelectionComponent(BaseComponent):
                 'temperature': self.gemini_params['temperature'].value,
                 'max_tokens': self.gemini_params['max_tokens'].value
             },
-            'Claude': {
+            'Anthropic': {
                 'model_name': self.claude_model_selection.value if self.claude_model_selection.value != "None" else None,
                 'temperature': self.claude_params['temperature'].value,
                 'max_tokens': self.claude_params['max_tokens'].value

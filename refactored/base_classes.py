@@ -154,19 +154,20 @@ class BaseWidgetManager:
         # Process with selected models
         models = model_component.get_selected_models()
         
-        for model_name, model_params in models.items():
-            if not model_params['model_name']:
+        for provider, model_params in models.items():
+            model_name = model_params.get('model_name')
+            if not model_name:
                 continue
                 
             try:
-                print(f"\n{model_name}로 처리 중...")
+                print(f"\n{provider}의 {model_name} 요청 발송...")
                 
                 # Use the correct internal method names from LLMAPIClient
-                if model_name == 'Gemini':
+                if provider == 'Gemini':
                     response_dict = client._process_with_gemini(
                         file_path=pdf_path,
                         prompt=prompt,
-                        model=model_params['model_name'],
+                        model=model_name,
                         system_instruction=system_instruction,
                         response_schema=schema,
                         temperature=model_params['temperature'],
@@ -174,11 +175,11 @@ class BaseWidgetManager:
                         enable_thinking=enable_thinking,
                         thinking_budget=thinking_budget
                     )
-                elif model_name == 'Claude':
+                elif provider == 'Anthropic':
                     response_dict = client._process_with_anthropic(
                         file_path=pdf_path,
                         prompt=prompt,
-                        model=model_params['model_name'],
+                        model=model_name,
                         system_instruction=system_instruction,
                         response_schema=schema,
                         temperature=model_params['temperature'],
@@ -186,11 +187,11 @@ class BaseWidgetManager:
                         enable_thinking=enable_thinking,
                         thinking_budget=thinking_budget
                     )
-                elif model_name == 'OpenAI':
+                elif provider == 'OpenAI':
                     response_dict = client._process_with_openai(
                         file_path=pdf_path,
                         prompt=prompt,
-                        model=model_params['model_name'],
+                        model=model_name,
                         system_instruction=system_instruction,
                         response_schema=schema,
                         temperature=model_params['temperature'],
@@ -200,30 +201,30 @@ class BaseWidgetManager:
                     )
                 
                 # Extract response text from structured response
-                response_text = extract_model_response_text(response_dict, model_name)
+                response_text = extract_model_response_text(response_dict, provider)
                 
                 # Store result in output component
                 output_component = self.get_component('output')
                 if output_component:
-                    output_component.store_result(model_name, response_text)
+                    output_component.store_result(provider, response_text)
                 
                 if completion_message:
-                    print(f"{model_name} {completion_message}")
+                    print(f"{provider}의 {model_name} {completion_message}")
                 else:
-                    print(f"{model_name} 처리 완료")
+                    print(f"{provider}의 {model_name} 요청 완료")
                 
                 # Enable save button
-                model_component.enable_save_button(model_name)
+                model_component.enable_save_button(provider)
                 
             except Exception as e:
                 with self.error_area:
-                    print(f"{model_name} 처리 중 오류: {str(e)}")
+                    print(f"{provider}의 {model_name} 요청 중 오류: {str(e)}")
         
-        # Display token usage summary
+        # # Display token usage summary
         output_component = self.get_component('output')
-        if output_component:
-            usage_summary = client.get_token_usage_summary()
-            output_component.display_token_usage(usage_summary)
+        # if output_component:
+        #     usage_summary = client.get_token_usage_summary()
+        #     output_component.display_token_usage(usage_summary)
         
         return True
 

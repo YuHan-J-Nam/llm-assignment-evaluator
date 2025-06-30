@@ -37,6 +37,12 @@ class SummarizeSubmissionManager(BaseWidgetManager):
             DEFAULT_SYSTEM_INSTRUCTION_SUMMARIZE,
             DEFAULT_PROMPT_SUMMARIZE
         )
+
+        template_component.set_rag_enabled(False)
+        template_component.rag_toggle_button.description = 'RAG 사용하지 않음'
+        template_component.rag_toggle_button.button_style = 'danger'
+        template_component.rag_toggle_button.tooltip = 'OpenSearch 설정이 필요합니다.'
+
         model_component = ModelSelectionComponent(self)
         model_component.set_action_button_text("학생 보고서 요약")
         model_component.set_action_handler(self.summarize_submission)
@@ -52,7 +58,7 @@ class SummarizeSubmissionManager(BaseWidgetManager):
         self.add_component('pdf_upload', pdf_upload_component)
         
         # Set save handlers
-        for model in ['Gemini', 'Claude', 'OpenAI']:
+        for model in ['Gemini', 'Anthropic', 'OpenAI']:
             model_component.set_save_handler(model, output_component.create_save_handler(model))
     
     def summarize_submission(self, b=None):
@@ -79,9 +85,7 @@ class SummarizeSubmissionManager(BaseWidgetManager):
                 '학생 제출물': submission_text
             })
             
-            print("System Instruction:")
-            print(system_instruction)
-            print("\\n보고서 요약 중...")
+            print("\n보고서 요약 중...")
             
             # Get PDF path if uploaded
             pdf_path = self.pdf_upload_component.get_pdf_path()

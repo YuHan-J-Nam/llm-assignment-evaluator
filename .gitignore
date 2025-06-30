@@ -5,6 +5,8 @@ logs/
 test/
 auto_evaluation_results/
 summarize_submission_관련/
+RAG결과물/
+rag_utils/
 
 # Ignore Python cache directories
 __pycache__/

@@ -17,6 +17,14 @@ from ..constants import (
     CHECKLIST_SCHEMA
 )
 
+# Import RAG functionality
+try:
+    from ..rag.rag_integration import RAGChecklistEnhancer
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
+    print("RAG functionality not available. Install required dependencies if needed.")
+
 
 class ChecklistCreationManager(BaseWidgetManager):
     """Manager for checklist creation task"""
@@ -25,6 +33,9 @@ class ChecklistCreationManager(BaseWidgetManager):
         """Initialize the checklist creation manager"""
         super().__init__()
         
+        # Initialize RAG enhancer
+        self.rag_enhancer = RAGChecklistEnhancer() if RAG_AVAILABLE else None
+        
         # Create components
         input_component = InputWidgetsComponent(self, include_grade=False)
         template_component = TemplateWidgetsComponent(
@@ -32,6 +43,15 @@ class ChecklistCreationManager(BaseWidgetManager):
             DEFAULT_SYSTEM_INSTRUCTION_CHECKLIST,
             DEFAULT_PROMPT_CHECKLIST
         )
+        
+        # Disable RAG toggle if RAG is not available
+        # if not RAG_AVAILABLE or (self.rag_enhancer and not self.rag_enhancer.is_available()):
+        #     template_component.set_rag_enabled(False)
+        #     template_component.rag_toggle_button.disabled = True
+        #     template_component.rag_toggle_button.description = 'RAG 사용 불가'
+        #     template_component.rag_toggle_button.button_style = 'danger'
+        #     template_component.rag_toggle_button.tooltip = 'OpenSearch 설정이 필요합니다.'
+
         model_component = ModelSelectionComponent(self)
         model_component.set_action_button_text("체크리스트 생성")
         model_component.set_action_handler(self.create_checklist)
@@ -49,7 +69,7 @@ class ChecklistCreationManager(BaseWidgetManager):
         self.add_component('pdf_upload', pdf_upload_component)
         
         # Set save handlers
-        for model in ['Gemini', 'Claude', 'OpenAI']:
+        for model in ['Gemini', 'Anthropic', 'OpenAI']:
             model_component.set_save_handler(model, output_component.create_save_handler(model))
     
     def create_checklist(self, b=None):
@@ -64,11 +84,40 @@ class ChecklistCreationManager(BaseWidgetManager):
                 
             # Get template values
             system_instruction = self.template_component.get_formatted_system_instruction()
-            prompt = self.template_component.get_formatted_prompt()
+            original_prompt = self.template_component.get_formatted_prompt()
             
-            print("System Instruction:")
-            print(system_instruction)
-            print("\n체크리스트 생성 중.")
+            # Enhance prompt with RAG if available and enabled
+            if (self.rag_enhancer and 
+                self.rag_enhancer.is_available() and 
+                self.template_component.is_rag_enabled()):
+                try:
+                    subject = self.input_component.subject_widget.value
+                    assessment_type = self.input_component.assessment_type_widget.value
+                    assessment_title = self.input_component.title_widget.value
+                    assessment_description = self.input_component.description_widget.value
+                    
+                    enhanced_prompt = self.rag_enhancer.get_enhanced_prompt(
+                        original_prompt, subject, assessment_type,
+                        assessment_title, assessment_description
+                    )
+                    print("✓ RAG enhancement applied to prompt")
+                    prompt = enhanced_prompt
+                    
+                except Exception as e:
+                    print(f"RAG enhancement failed, using original prompt: {e}")
+                    prompt = original_prompt
+            else:
+                prompt = original_prompt
+                if self.rag_enhancer and not self.rag_enhancer.is_available():
+                    print("ⓘ RAG functionality initialized but OpenSearch not configured")
+                elif not self.template_component.is_rag_enabled():
+                    print("ⓘ RAG functionality disabled by user")
+
+            # Reconfigure template_component values
+            self.template_component.system_instruction_widget.value = system_instruction
+            self.template_component.prompt_widget.value = prompt
+            
+            print("\n체크리스트 생성 중...")
             
             # Get PDF path if uploaded
             pdf_path = self.pdf_upload_component.get_pdf_path()
@@ -111,9 +160,8 @@ class ChecklistCreationManager(BaseWidgetManager):
         # Tab 3: 결과 보기
         results = widgets.VBox([
             widgets.HTML("<h3>결과 보기</h3>"),
-            self.output_component.create_layout(),
             self.output_area,
-            self.error_area
+            self.output_component.create_layout()
         ])
         
         # Tab 4: 로그 및 토큰
@@ -121,7 +169,9 @@ class ChecklistCreationManager(BaseWidgetManager):
             widgets.HTML("<h3>시스템 로그</h3>"),
             self.log_output,
             widgets.HTML("<h3>토큰 사용량</h3>"),
-            self.output_component.token_usage_output
+            self.output_component.token_usage_output,
+            widgets.HTML("<h3>오류 메시지</h3>"),
+            self.error_area
         ])
         
         # Set tab contents

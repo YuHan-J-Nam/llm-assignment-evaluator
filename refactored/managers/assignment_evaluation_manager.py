@@ -40,6 +40,12 @@ class AssignmentEvaluationManager(BaseWidgetManager):
             DEFAULT_SYSTEM_INSTRUCTION_EVALUATION,
             DEFAULT_PROMPT_EVALUATION
         )
+
+        template_component.set_rag_enabled(False)
+        template_component.rag_toggle_button.description = 'RAG 사용하지 않음'
+        template_component.rag_toggle_button.button_style = 'danger'
+        template_component.rag_toggle_button.tooltip = 'OpenSearch 설정이 필요합니다.'
+
         model_component = ModelSelectionComponent(self)
         model_component.set_action_button_text("평가 시작")
         model_component.set_action_handler(self.run_evaluation)
@@ -56,7 +62,7 @@ class AssignmentEvaluationManager(BaseWidgetManager):
         self.add_component('output', output_component)
         
         # Set save handlers
-        for model in ['Gemini', 'Claude', 'OpenAI']:
+        for model in ['Gemini', 'Anthropic', 'OpenAI']:
             model_component.set_save_handler(model, output_component.create_save_handler(model))
     
     def run_evaluation(self, b=None):
@@ -89,17 +95,16 @@ class AssignmentEvaluationManager(BaseWidgetManager):
                 return
             
             # Format system instruction with input values
-            system_instruction = self.template_component.get_formatted_system_instruction()
+            system_instruction = self.template_component.get_formatted_system_instruction({
+                '평가_기준': json.dumps(criteria, ensure_ascii=False)
+            })
             
             # Format prompt with checklist and submission
             prompt = self.template_component.get_formatted_prompt({
-                '평가 기준': json.dumps(criteria, ensure_ascii=False, indent=2),
-                '학생 제출물': submission_text
+                '학생_제출물': submission_text
             })
             
-            print("System Instruction:")
-            print(system_instruction)
-            print("\\n평가 중...")
+            print("\n과제물 평가 중...")
             
             # Get PDF path if uploaded
             pdf_path = self.pdf_upload_component.get_pdf_path()

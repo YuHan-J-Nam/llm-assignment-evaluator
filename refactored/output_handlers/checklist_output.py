@@ -31,27 +31,24 @@ class ChecklistOutputComponent(BaseOutputComponent):
                     
                     checklist = result.get('checklist', [])
                     
-                    for category in checklist:
-                        title = category.get('title', '')
-                        html_output += f"<h3>{title}</h3>"
+                    # Create a single table for all criteria
+                    html_output += "<table border='1' style='width: 100%; border-collapse: collapse;'>"
+                    html_output += "<style>td, th {text-align: left; padding: 8px; vertical-align: top;}</style>"
+                    html_output += "<tr><th style='width: 15%;'>평가 기준</th><th style='width: 25%;'>설명</th><th style='width: 15%;'>상 (3점)</th><th style='width: 15%;'>중 (2점)</th><th style='width: 15%;'>하 (1점)</th><th style='width: 15%;'>최하 (0점)</th></tr>"
+                    
+                    for criterion in checklist:
+                        html_output += "<tr>"
+                        html_output += f"<td><strong>{criterion.get('name', '')}</strong></td>"
+                        html_output += f"<td>{criterion.get('description', '')}</td>"
                         
-                        subcategories = category.get('subcategories', [])
-                        html_output += "<table border='1'>"
-                        html_output += "<style>td {text-align: left;}</style>"
-                        html_output += "<tr><th>평가 기준</th><th>설명</th><th>상</th><th>중</th><th>하</th></tr>"
-                        
-                        for subcategory in subcategories:
-                            html_output += "<tr>"
-                            html_output += f"<td>{subcategory.get('name', '')}</td>"
-                            html_output += f"<td>{subcategory.get('description', '')}</td>"
-                            
-                            levels = subcategory.get('levels', {})
-                            html_output += f"<td>{levels.get('high', '')}</td>"
-                            html_output += f"<td>{levels.get('medium', '')}</td>"
-                            html_output += f"<td>{levels.get('low', '')}</td>"
-                            html_output += "</tr>"
-                        
-                        html_output += "</table><br>"
+                        levels = criterion.get('levels', {})
+                        html_output += f"<td>{levels.get('3', '')}</td>"
+                        html_output += f"<td>{levels.get('2', '')}</td>"
+                        html_output += f"<td>{levels.get('1', '')}</td>"
+                        html_output += f"<td>{levels.get('0', '')}</td>"
+                        html_output += "</tr>"
+                    
+                    html_output += "</table><br>"
                     
                     # Display the HTML output
                     display(HTML(html_output))

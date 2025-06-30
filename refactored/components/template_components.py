@@ -36,13 +36,23 @@ class TemplateWidgetsComponent(BaseComponent):
             tooltip='입력된 정보로 템플릿을 업데이트합니다.'
         )
         self.update_templates_button.on_click(self.update_templates)
+
+        # RAG toggle button
+        self.rag_toggle_button = widgets.ToggleButton(
+            value=True,  # Default enabled
+            description='RAG 사용',
+            button_style='success',
+            tooltip='RAG(검색 증강 생성)를 사용하여 체크리스트 생성을 향상시킵니다.'
+        )
+        self.rag_toggle_button.observe(self._on_rag_toggle, names='value')
     
     def get_widgets(self):
         """Return all widgets in this component"""
         return [
             self.system_instruction_widget,
             self.prompt_widget,
-            self.update_templates_button
+            self.update_templates_button,
+            self.rag_toggle_button
         ]
     
     def create_layout(self):
@@ -51,7 +61,7 @@ class TemplateWidgetsComponent(BaseComponent):
             widgets.HTML("<h3>템플릿 편집</h3>"),
             self.system_instruction_widget,
             self.prompt_widget,
-            self.update_templates_button
+            widgets.HBox([self.update_templates_button, self.rag_toggle_button])
         ])
     
     def update_templates(self, b=None):
@@ -88,3 +98,20 @@ class TemplateWidgetsComponent(BaseComponent):
             prompt = format_template(prompt, replacements)
                 
         return prompt
+    
+    def _on_rag_toggle(self, change):
+        """Handle RAG toggle button state change"""
+        if change['new']:
+            self.rag_toggle_button.button_style = 'success'
+            # print("✓ RAG 기능이 활성화되었습니다.")
+        else:
+            self.rag_toggle_button.button_style = 'warning'
+            # print("⚠ RAG 기능이 비활성화되었습니다.")
+    
+    def is_rag_enabled(self):
+        """Check if RAG is enabled"""
+        return self.rag_toggle_button.value
+    
+    def set_rag_enabled(self, enabled):
+        """Set RAG enabled state"""
+        self.rag_toggle_button.value = enabled

@@ -55,7 +55,7 @@ def format_template(template: str, replacements: dict) -> str:
     """
     formatted = template
     for placeholder, value in replacements.items():
-        formatted = formatted.replace(f"[{placeholder}]", str(value))
+        formatted = formatted.replace(f"{{{placeholder}}}", str(value))
     return formatted
 
 
@@ -97,12 +97,12 @@ def check_directory_writable(directory: str) -> bool:
     return os.access(directory, os.W_OK)
 
 
-def extract_model_response_text(response_dict: dict, model_type: str) -> str:
+def extract_model_response_text(response_dict: dict, provider: str) -> str:
     """Extract response text from the structured response dictionary
     
     Args:
         response_dict: The structured response dictionary from LLMAPIClient
-        model_type: Type of model ('Gemini', 'Claude', 'OpenAI')
+        provider: Type of model ('Gemini', 'Anthropic', 'OpenAI')
         
     Returns:
         Extracted response text
@@ -116,9 +116,9 @@ def extract_model_response_text(response_dict: dict, model_type: str) -> str:
     response = response_dict['response']
     
     try:
-        if model_type == 'Gemini':
+        if provider == 'Gemini':
             return response.candidates[0].content.parts[0].text
-        elif model_type == 'Claude':
+        elif provider == 'Anthropic':
             response_text = response.content[0].text
             # Extract JSON content if wrapped in markdown code block
             if "```json" in response_text:

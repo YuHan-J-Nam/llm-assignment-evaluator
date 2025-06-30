@@ -97,36 +97,3 @@ def create_summarize_interface():
         SummarizeSubmissionManager: Ready-to-use summarization interface
     """
     return SummarizeSubmissionManager()
-
-
-# Example usage functions
-def demo_checklist_creation():
-    """Demonstrate checklist creation functionality"""
-    print("Creating checklist creation interface...")
-    manager = create_checklist_interface()
-    manager.display_all()
-    return manager
-
-
-def demo_assignment_evaluation():
-    """Demonstrate assignment evaluation functionality"""
-    print("Creating assignment evaluation interface...")
-    manager = create_evaluation_interface()
-    manager.display_all()
-    return manager
-
-
-def demo_llm_calls():
-    """Demonstrate direct LLM API calls"""
-    print("Creating LLM call interface...")
-    manager = create_llm_call_interface()
-    manager.display_all()
-    return manager
-
-
-def demo_submission_summarization():
-    """Demonstrate submission summarization functionality"""
-    print("Creating submission summarization interface...")
-    manager = create_summarize_interface()
-    manager.display_all()
-    return manager

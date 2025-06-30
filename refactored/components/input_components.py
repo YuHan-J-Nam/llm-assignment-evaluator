@@ -75,9 +75,9 @@ class InputWidgetsComponent(BaseComponent):
         """Get all input values as a dictionary"""
         values = {
             '과목': self.subject_widget.value,
-            '수행평가 제목': self.title_widget.value,
-            '수행평가 유형': self.assessment_type_widget.value,
-            '수행평가 설명': self.description_widget.value,
+            '수행평가_제목': self.title_widget.value,
+            '수행평가_유형': self.assessment_type_widget.value,
+            '수행평가_설명': self.description_widget.value,
         }
         
         if self.include_grade:

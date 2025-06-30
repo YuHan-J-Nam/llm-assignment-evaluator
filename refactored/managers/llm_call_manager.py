@@ -42,7 +42,7 @@ class LlmCallManager(BaseWidgetManager):
         self.add_component('pdf_upload', pdf_upload_component)
         
         # Set save handlers
-        for model in ['Gemini', 'Claude', 'OpenAI']:
+        for model in ['Gemini', 'Anthropic', 'OpenAI']:
             model_component.set_save_handler(model, output_component.create_save_handler(model))
     
     def make_llm_call(self, b=None):
@@ -60,10 +60,6 @@ class LlmCallManager(BaseWidgetManager):
                 self.display_error("프롬프트를 입력해주세요.")
                 return
             
-            print("System Instruction:")
-            print(system_instruction if system_instruction.strip() else "(없음)")
-            print("\\nPrompt:")
-            print(prompt)
             print("\\nLLM API 요청 중...")
             
             # Get PDF path if uploaded
@@ -122,7 +118,7 @@ class LlmCallManager(BaseWidgetManager):
                     # Extract text from Gemini response
                     response_text = response_dict['response'].candidates[0].content.parts[0].text
                     
-                elif model_name == 'Claude':
+                elif model_name == 'Anthropic':
                     response_dict = client._process_with_anthropic(
                         file_path=pdf_path,
                         prompt=prompt,
@@ -134,7 +130,7 @@ class LlmCallManager(BaseWidgetManager):
                         enable_thinking=model_params.get('enable_thinking', False),
                         thinking_budget=model_params.get('thinking_budget')
                     )
-                    # Extract text from Claude response
+                    # Extract text from Anthropic response
                     response_text = response_dict['response'].content[0].text
                     
                 elif model_name == 'OpenAI':
