@@ -1,8 +1,10 @@
 # Ignore logs directory
 logs/
 
-# Ignore test directory
+# Ignore test directories
 test/
+auto_evaluation_results/
+summarize_submission_관련/
 
 # Ignore Python cache directories
 __pycache__/
@@ -35,10 +37,15 @@ build/
 # Ignore all temporary files
 temp/
 
-# Ignore all checklists and evaluations
-checklists/
-evaluations/
-auto_evaluation_results/
-summarize_submission_관련/
+
+
+# Ignore all files inside the checklists, evaluations, and summary folder
+checklists/*
+evaluations/*
+summary/*
+
+# Except base AI_Hub Checklists
+!checklists/논술형_checklist.json
+!checklists/수필형_checklist.json
 
 
