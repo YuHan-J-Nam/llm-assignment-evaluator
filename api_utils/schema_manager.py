@@ -52,10 +52,47 @@ class ResponseSchemaManager:
     
     def format_anthropic_schema(self, custom_schema=None):
         """Anthropic API용으로 포맷된 스키마 가져오기"""
-        # 현재로서는 별도 요구사항이 없지만, 필요시 추가 가능
         schema = custom_schema if custom_schema else self.default_schema
         new_schema = copy.deepcopy(schema)
-        return schema
+        
+        # 스키마 종류 및 도구 설정 정의
+        schema_mappings = {
+            "checklist": {
+                "name": "create_checklist",
+                "description": "정형화된 JSON을 사용하여 수행평가에 대한 평가 기준(checklist)을 생성"
+            },
+            "evaluation": {
+                "name": "evaluate_assignment", 
+                "description": "정형화된 JSON을 사용하여 수행평가 과제물에 대한 평가 결과를 생성"
+            },
+            "summary": {
+                "name": "summarize_assignment",
+                "description": "정형화된 JSON을 사용하여 수행평가 과제물에 대한 요약을 생성"
+            }
+        }
+        
+        # 스키마에서 properties를 확인하여 적절한 도구 설정 선택
+        properties = new_schema.get("properties", {})
+        tool_config = None
+        
+        for key, config in schema_mappings.items():
+            if key in properties:
+                tool_config = config
+                break
+        
+        # 도구 설정이 없을 시
+        if not tool_config:
+            tool_config = {
+                "name": "basic_tool",
+                "description": "기본 도구"
+            }
+        
+        return {
+            "name": tool_config["name"],
+            "description": tool_config["description"],
+            "input_schema": new_schema,
+            "cache_control": {"type": "ephemeral"}
+        }, tool_config["name"]
     
     def format_openai_schema(self, custom_schema=None):
         """OpenAI API용으로 포맷된 스키마 가져오기"""
@@ -75,7 +112,7 @@ class ResponseSchemaManager:
             }
         }
     
-    def parse_response(self, response_text: str, schema: dict, model: str = None) -> dict:
+    def parse_content_to_json(self, response_text: str, schema: dict, model: str = None) -> dict:
         """
         응답 텍스트를 파싱하여 구조화된 데이터 추출
         

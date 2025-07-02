@@ -6,6 +6,7 @@ import re
 from typing import Optional, Dict, List, Any, Tuple, Iterator
 from api_utils.config import init_anthropic_client
 from api_utils.pdf_utils import validate_pdf, encode_pdf_base64
+from api_utils.schema_manager import ResponseSchemaManager
 
 class AnthropicAPI:
     """Anthropic API와 상호작용하기 위한 인터페이스"""
@@ -13,6 +14,7 @@ class AnthropicAPI:
     def __init__(self, logger=None):
         self.client = init_anthropic_client()
         self.logger = logger or logging.getLogger("anthropic_api")
+        self.schema_manager = ResponseSchemaManager()
 
     # --------------------------------------------------------
     # PDF 파일 업로드 관련 메서드
@@ -93,20 +95,6 @@ class AnthropicAPI:
         
         return [{"role": "user", "content": content}]
     
-    def apply_response_schema(self, instruction: str, schema: Dict[str, Any]) -> str:
-        """응답 스키마를 지시사항에 통합하여 적용합니다"""
-        # Anthropic는 별도의 응답 스키마를 지원하지 않으므로, 지시사항에 스키마를 포함시킵니다.
-        enhanced_instruction = f"""{instruction}
-
-다음 JSON 형식으로만 응답하라:
-
-```json
-{schema}
-```
-
-반드시 위의 JSON 구조를 정확히 따르고, 추가적인 텍스트나 설명은 포함하지 마라."""
-        return enhanced_instruction
-    
     def create_response_params(
         self,
         input: List[Dict[str, Any]],
@@ -116,7 +104,8 @@ class AnthropicAPI:
         enable_thinking: bool = False,
         thinking_budget: Optional[int] = 5000,
         system_instruction: Optional[str] = None,
-        response_schema: Optional[Dict[str, Any]] = None
+        response_schema: Optional[Dict[str, Any]] = None,
+        cache_system_instruction: bool = True
     ) -> Dict[str, Any]:
         """
         Anthropic API 요청을 위한 파라미터를 생성합니다.
@@ -130,6 +119,7 @@ class AnthropicAPI:
             thinking_budget (int, optional): 사고 토큰 예산
             system_instruction (str, optional): 시스템 메시지
             response_schema (dict, optional): 응답 스키마
+            cache_system_instruction (bool): 시스템 메시지 캐시 설정 여부
 
         Returns:
             params: API 요청 파라미터
@@ -143,14 +133,20 @@ class AnthropicAPI:
 
         # 시스템 지시사항이 제공된 경우 추가
         if system_instruction:
-            # 응답 스키마가 제공된 경우 시스템 지시사항에 적용 (Anthropic는 별도의 응답 스키마를 지원하지 않음)
-            if response_schema:
-                system_instruction = self.apply_response_schema(system_instruction, response_schema)
             params["system"] = [{
                 "type": "text",
-                "text": system_instruction,
-                "cache_control": {"type": "ephemeral"}
+                "text": system_instruction
             }]
+
+            # 캐시 설정
+            if cache_system_instruction:
+                params["system"][0]["cache_control"] = {"type": "ephemeral"}
+
+        # 응답 스키마가 제공된 경우 Tools 기능을 사용하여 추가
+        if response_schema:
+            tool_config, tool_name = self.schema_manager.format_anthropic_schema(response_schema)
+            params['tools'] = [tool_config]
+            params['tool_choice'] = {"type": "tool", "name": tool_name}
 
         # 사고 기능이 활성화된 경우 추가
         if enable_thinking:
@@ -229,6 +225,51 @@ class AnthropicAPI:
             self.logger.debug(f"Anthropic API 요청 파라미터: {params}", exc_info=True)
             raise
 
+    def parse_response(self, response) -> Dict[str, Any]:
+        """
+        Anthropic API 응답을 파싱하여 텍스트와 토큰 사용량을 추출
+        
+        Args:
+            response: Anthropic API 응답 객체 또는 딕셔너리
+            
+        Returns:
+            파싱된 텍스트와 토큰 사용량이 담긴 딕셔너리
+        """
+        try:
+            # 딕셔너리 형태인 경우
+            if isinstance(response, dict):
+                for content_item in response.get('content', []):
+                    if hasattr(content_item, 'text'):
+                        text = content_item.get('text', '')
+                        break
+                    elif hasattr(content_item, 'input'):
+                        # Tool 사용 시 input 필드에서 텍스트 추출
+                        text = content_item.get('input', {})
+                        break
+                    else:
+                        text = ''
+                token_usage = response.get('usage', {})
+                
+            # 객체 형태인 경우
+            else:
+                for content_item in response.content:
+                    if hasattr(content_item, 'text'):
+                        text = content_item.text
+                        break
+                    elif hasattr(content_item, 'input'):
+                        # Tool 사용 시 input 필드에서 텍스트 추출
+                        text = content_item.input
+                        break
+                    else:
+                        text = ''            
+                token_usage = response.usage if hasattr(response, 'usage') else {}
+            
+            return {"text": text, "token_usage": token_usage}
+            
+        except Exception as e:
+            self.logger.error(f"Anthropic 응답 파싱 중 오류 발생: {str(e)}")
+            return {"text": "", "token_usage": {}}
+
     # --------------------------------------------------------
     # Anthropic API의 배치 요청을 생성하고 관리하는 메서드
     # --------------------------------------------------------
@@ -263,13 +304,13 @@ class AnthropicAPI:
             
             # 시스템 지시사항이 제공된 경우 응답 스키마 적용
             if system_instruction and response_schema:
-                system_instruction = self.apply_response_schema(system_instruction, response_schema)
+                system_instruction = self._apply_response_schema(system_instruction, response_schema)
             
             # 사용자 정의 ID가 제공되지 않은 경우 자동 생성
             if not custom_ids:
                 custom_ids = [f"request_{i}" for i in range(len(prompts))]
             elif len(custom_ids) != len(prompts):
-                raise ValueError("custom_ids 길이는 prompts 길이와 일치해야 합니다.")
+                raise ValueError("custom_id의 개수는 prompt개수와 일치해야 합니다.")
             
             # 배치 요청 준비
             requests = []
@@ -294,12 +335,12 @@ class AnthropicAPI:
                 })
             
             # 배치 요청 전송
-            batch_response = self.client.messages.batches.create(
+            batch_request = self.client.messages.batches.create(
                 requests=requests
             )
             
-            self.logger.info(f"Anthropic 배치 요청 생성 성공: 배치 ID: {batch_response.id}, 요청 수: {len(prompts)}")
-            return batch_response
+            self.logger.info(f"Anthropic 배치 요청 생성 성공: 배치 ID: {batch_request.id}, 요청 수: {len(prompts)}")
+            return batch_request
             
         except Exception as e:
             self.logger.error(f"Anthropic 배치 요청 생성 실패: {str(e)}")
