@@ -135,6 +135,8 @@ class OpenAIAPI:
 
         # 사고 모드가 활성화된 경우 추가
         if enable_thinking:
+            if thinking_budget is None:
+                raise ValueError("사고 기능이 활성화된 경우 thinking_budget를 지정해야 합니다.")
             params["reasoning"] = {
                 "effort": "medium",
                 "summary": "auto"
@@ -207,6 +209,49 @@ class OpenAIAPI:
             self.logger.debug(f"OpenAI API 요청 파라미터: {params}", exc_info=True)
             raise
 
+    def parse_response(self, response, is_thinking_model: bool = False) -> Dict[str, Any]:
+        """
+        OpenAI API 응답을 파싱하여 텍스트와 토큰 사용량을 추출
+        
+        Args:
+            response: OpenAI API 응답 객체 또는 딕셔너리
+            model: 모델명 (thinking 모델 여부 확인용)
+            
+        Returns:
+            파싱된 텍스트와 토큰 사용량이 담긴 딕셔너리
+        """
+        try:
+            # thinking 모델이면 output의 두번째 인덱스에 텍스트가 위치함
+            output_idx = 1 if is_thinking_model else 0
+            
+            # 딕셔너리 형태인 경우
+            if isinstance(response, dict):
+                # 응답 텍스트 추출
+                output = response.get('output', [])
+                if len(output) > output_idx:
+                    text = output[output_idx].get('content', [])[0].get('text', '')
+                
+                # 토큰 사용량 추출
+                token_usage = response.get('usage', {})
+                
+            # 객체 형태인 경우
+            else:
+                # 응답 텍스트 추출
+                if hasattr(response, 'output') and response.output and len(response.output) > output_idx:
+                    content = response.output[output_idx].content
+                    text = content[0].text if content else ''
+                else:
+                    text = ''
+                
+                # 토큰 사용량 추출
+                token_usage = response.usage if hasattr(response, 'usage') else {}
+            
+            return {"text": text, "token_usage": token_usage}
+            
+        except Exception as e:
+            self.logger.error(f"OpenAI 응답 파싱 중 오류 발생: {str(e)}")
+            return {"text": "", "token_usage": {}}
+
     # --------------------------------------------------------
     # OpenAI API의 배치 요청을 생성하고 관리하는 메서드
     # --------------------------------------------------------
@@ -220,11 +265,12 @@ class OpenAIAPI:
         system_instruction: Optional[str] = None,
         response_schema: Optional[Dict[str, Any]] = None,
         custom_ids: Optional[List[str]] = None
-    ) -> Tuple[str, int]:
+    ) -> str:
         """
         배치 요청을 위한 임시 JSONL 파일을 생성합니다. 
         각 행은 API에 대한 개별 요청의 세부 정보를 포함합니다.
         /v1/responses 엔드포인트가 사용됩니다.
+        **중요! 각 배치 요청은 하나의 모델에 대한 프롬프트만 포함할 수 있습니다.**
 
         Args:
             prompts (List[str]): 처리할 사용자 프롬프트 목록
@@ -236,7 +282,7 @@ class OpenAIAPI:
             custom_ids (List[str], optional): 각 요청에 대한 사용자 정의 ID 목록. 제공되지 않으면 자동 생성됨.
 
         Returns:
-            Tuple[str, int]: 생성된 JSONL 파일 경로와 요청 수
+            str: 생성된 JSONL 파일의 경로
         """
         try:
             self.logger.info(f"OpenAI 배치 입력 파일 생성 중: {len(prompts)}개의 프롬프트, 모델: {model}")
@@ -245,7 +291,7 @@ class OpenAIAPI:
             if not custom_ids:
                 custom_ids = [f"request_{i}" for i in range(len(prompts))]
             elif len(custom_ids) != len(prompts):
-                raise ValueError("custom_ids 길이는 prompts 길이와 일치해야 합니다.")
+                raise ValueError("custom_id의 개수는 prompt의 개수와 일치해야 합니다.")
             
             # 임시 디렉토리에 JSONL 파일 생성
             temp_dir = os.path.join(PROJECT_ROOT, 'temp')
@@ -268,13 +314,18 @@ class OpenAIAPI:
                         response_schema=response_schema
                     )
                     
-                    request = {"custom_id": custom_ids[i], "method": "POST", "url": "/v1/responses", "body": body}
+                    request = {
+                        "custom_id": custom_ids[i], 
+                        "method": "POST", 
+                        "url": "/v1/responses",
+                        "body": body
+                    }
 
                     # JSONL 형식으로 파일에 작성
                     f.write(json.dumps(request) + '\n')
             
             self.logger.info(f"OpenAI 배치 입력 파일 생성 성공: {jsonl_path}, 요청 수: {len(prompts)}")
-            return jsonl_path, len(prompts)
+            return jsonl_path
             
         except Exception as e:
             self.logger.error(f"OpenAI 배치 입력 파일 생성 실패: {str(e)}")
@@ -338,7 +389,7 @@ class OpenAIAPI:
             self.logger.info(f"OpenAI 배치 요청 생성 중: {len(prompts)}개의 프롬프트, 모델: {model}")
             
             # 1. 배치 입력 파일 생성
-            jsonl_path, request_count = self.create_batch_input_file(
+            jsonl_path = self.create_batch_input_file(
                 prompts=prompts,
                 model=model,
                 temperature=temperature,
@@ -352,7 +403,7 @@ class OpenAIAPI:
             file_id = self.upload_batch_input_file(jsonl_path).id
             
             # 3. 배치 요청 생성
-            batch_response = self.client.batches.create(
+            batch_request = self.client.batches.create(
                 input_file_id=file_id,
                 endpoint="/v1/responses",
                 completion_window="24h",
@@ -366,8 +417,8 @@ class OpenAIAPI:
             except Exception as e:
                 self.logger.warning(f"임시 JSONL 파일 삭제 실패: {str(e)}")
             
-            self.logger.info(f"OpenAI 배치 요청 생성 성공: 배치 ID: {batch_response.id}, 요청 수: {request_count}")
-            return batch_response
+            self.logger.info(f"OpenAI 배치 요청 생성 성공: 배치 ID: {batch_request.id}, 요청 수: {len(prompts)}")
+            return batch_request
             
         except Exception as e:
             self.logger.error(f"OpenAI 배치 요청 생성 실패: {str(e)}")

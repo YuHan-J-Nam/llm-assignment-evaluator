@@ -1,11 +1,11 @@
 import logging
 import time
 import os
-import json
 from typing import Optional, Dict, List, Any
 from google.genai import types
 from api_utils.config import init_gemini_client
 from api_utils.pdf_utils import validate_pdf, encode_pdf_base64
+from api_utils.token_counter import TokenCounter
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -15,6 +15,7 @@ class GeminiAPI:
     def __init__(self, logger=None):
         self.client = init_gemini_client()
         self.logger = logger or logging.getLogger("gemini_api")
+        self.token_counter = TokenCounter()
 
     # --------------------------------------------------------
     # PDF 파일 업로드 관련 메서드
@@ -229,3 +230,30 @@ class GeminiAPI:
             self.logger.error(f"Gemini의 {model}에서 응답 생성 오류: {str(e)}")
             self.logger.debug(f"Gemini API 요청 파라미터: {params}", exc_info=True)
             raise
+
+    def parse_response(self, response) -> Dict[str, Any]:
+        """
+        Gemini API 응답을 파싱하여 텍스트와 토큰 사용량을 추출
+        
+        Args:
+            response: Gemini API 응답 객체 또는 딕셔너리
+            
+        Returns:
+            파싱된 텍스트와 토큰 사용량이 담긴 딕셔너리
+        """
+        try:
+            # 딕셔너리 형태인 경우
+            if isinstance(response, dict):
+                text = response.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+                token_usage = response.get('usage_metadata', {})
+                
+            # 객체 형태인 경우
+            else:
+                text = response.candidates[0].content.parts[0].text if response.candidates[0].content.parts else ''
+                token_usage = response.usage_metadata if hasattr(response, 'usage_metadata') else {}
+            
+            return {"text": text, "token_usage": token_usage}
+            
+        except Exception as e:
+            self.logger.error(f"Gemini 응답 파싱 중 오류 발생: {str(e)}")
+            return {"text": "", "token_usage": {}}

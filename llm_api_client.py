@@ -95,7 +95,7 @@ class LLMAPIClient:
 
     def _is_thinking_supported(self, model: str) -> bool:
         """Check if the given model supports thinking/reasoning"""
-        for provider, config in MODEL_DICT.items():
+        for _, config in MODEL_DICT.items():
             if model in config["thinking_models"]:
                 return True
         return False
@@ -192,15 +192,15 @@ class LLMAPIClient:
             tasks.append((model, task))
         
         # Gather results
-        results = []
+        responses = []
         for model, task in tasks:
             try:
                 response_dict = await task
                 response_dict["metadata"]["timestamp"] = datetime.now().isoformat()
-                results.append(response_dict)
+                responses.append(response_dict)
             except Exception as e:
                 self.logger.error(f"Error processing with model {model}: {str(e)}")
-                results.append({
+                responses.append({
                     "metadata": {
                         "model": model,
                         "timestamp": datetime.now().isoformat()
@@ -208,7 +208,7 @@ class LLMAPIClient:
                     "request_error": str(e)
                 })
         
-        return results
+        return responses
     
     async def batch_process_prompts(
         self,
@@ -573,65 +573,99 @@ class LLMAPIClient:
             self.logger.error(f"Error saving results to file {file_path}: {str(e)}")
             raise
 
-    def process_results(self, results: List[Dict[str, Any]], schema: Dict, custom_id_func: Optional[callable] = None, **kwargs) -> List[Dict[str, Any]]:
+    def parse_response_by_provider(self, response, provider: str = None, model: str = None) -> Dict[str, Any]:
         """
-        Process the results of API calls to extract relevant information.
+        제공업체에 따라 적절한 파싱 메서드를 선택하여 응답 파싱
         
         Args:
-            results: List of dictionaries containing model responses and metadata
-            schema: JSON schema to validate and parse the response text
-            custom_id_func: Optional function to extract information from custom_id
-            **kwargs: Additional metadata to include in the processed results
+            response: API 응답 객체 또는 딕셔너리
+            provider: API 제공업체 ('gemini', 'anthropic', 'openai') (선택사항)
+            model: 모델명 (선택사항)
             
         Returns:
-            List of dictionaries with processed results containing metadata(model name), response text, and token usage
+            파싱된 텍스트와 토큰 사용량이 담긴 딕셔너리
+        """
+        provider = provider.lower()
+        
+        if provider == 'gemini' or model.startswith('gemini'):
+            return self.gemini.parse_response(response)
+        elif provider == 'anthropic' or model.startswith('claude'):
+            return self.anthropic.parse_response(response)
+        elif provider == 'openai' or model.startswith('gpt') or model.startswith('o'):
+            return self.openai.parse_response(response, self._is_thinking_supported(model))
+        else:
+            self.logger.warning(f"알 수 없는 제공업체: {provider}")
+            return {"text": "", "token_usage": {}}
+
+    def parse_responses(self, responses: List[Dict[str, Any]], schema: Dict = None, custom_id_func: Optional[callable] = None, **kwargs) -> List[Dict[str, Any]]:
+        """
+        여러 API 응답을 파싱하여 관련 정보 추출
+        
+        Args:
+            responses: 모델 응답과 메타데이터가 포함된 딕셔너리 목록
+            schema: 응답 텍스트를 검증하고 파싱하는 데 사용할 JSON 스키마 (선택사항)
+            custom_id_func: custom_id에서 정보를 추출하는 선택적 함수
+            **kwargs: 처리된 결과에 포함할 추가 메타데이터
+            
+        Returns:
+            메타데이터(모델명), 응답 텍스트, 토큰 사용량이 포함된 처리된 결과 딕셔너리 목록
         """
         processed_results = []
-        for result_dict in results:
-            if 'error' in result_dict:
+        for response_dict in responses:
+            if 'error' in response_dict:
                 continue
-            elif 'response' not in result_dict:
+            elif 'response' not in response_dict:
                 continue
             
-            # Extract model name and response
-            model = result_dict['metadata']['model']
+            # 모델명과 응답 추출
+            model = response_dict['metadata']['model']
+            response = response_dict['response']
+            
             try:
-                if model in MODEL_DICT['Gemini']['supported_models']:
-                    text = result_dict['response'].candidates[0].content.parts[0].text
-                    token_usage = json.loads(result_dict['response'].usage_metadata.model_dump_json())
-                elif model in MODEL_DICT['Anthropic']['supported_models']:
-                    text = result_dict['response'].content[0].text
-                    token_usage = json.loads(result_dict['response'].usage.model_dump_json())
-                elif model in MODEL_DICT['OpenAI']['supported_models']:
-                    # OpenAI responses with reasoning can have multiple outputs, handle accordingly
-                    output_idx = 0 if model not in MODEL_DICT['OpenAI']['thinking_models'] else 1
-                    # check if result_dict['response'] is dict or object
-                    if isinstance(result_dict['response'], dict):
-                        text = result_dict['response']['output'][output_idx]['content'][0]['text']
-                        token_usage = result_dict['response']['usage']
-                    else:
-                        text = result_dict['response'].output[output_idx].content[0].text
-                        token_usage = json.loads(result_dict['response'].usage.model_dump_json())
+                # 제공 
+                provider = self._get_provider_for_model(model)
+                if not provider:
+                    self.logger.warning(f"모델 {model}의 제공업체를 확인할 수 없습니다")
+                    continue
+                
+                # 응답 파싱
+                parsed_response = self.parse_response_by_provider(response, provider, model)
+                text = parsed_response["text"]
+                token_usage = parsed_response["token_usage"]
+                
+                # 토큰 사용량 로깅
+                if token_usage:
+                    self.token_counter.log_token_usage(
+                        model_name=model,
+                        input_tokens=token_usage.get("input_tokens", 0),
+                        output_tokens=token_usage.get("output_tokens", 0),
+                        cached_input_tokens=token_usage.get("cached_input_tokens", 0),
+                        total_tokens=token_usage.get("total_tokens", 0)
+                    )
+                
             except Exception as e:
-                self.logger.error(f"Skipping model {model} due to processing error: {str(e)}")
+                self.logger.error(f"모델 {model} 처리 중 오류로 인해 건너뜀: {str(e)}")
                 text = ""
                 token_usage = {}
 
-            # If custom_id_func is provided, extract additional metadata
+            # custom_id_func가 제공된 경우 추가 메타데이터 추출
             if custom_id_func:
                 try:
-                    custom_id = result_dict['metadata']['custom_id']
+                    custom_id = response_dict['metadata']['custom_id']
                     additional_info = custom_id_func(custom_id)
                     kwargs.update(additional_info)
                 except Exception as e:
                     pass
 
-            # Create metadata dictionary with additional information
-            metadata = result_dict['metadata'].copy()
+            # 추가 정보가 포함된 메타데이터 딕셔너리 생성
+            metadata = response_dict['metadata'].copy()
             metadata.update(kwargs)
 
-            # Parse the response text using the schema manager
-            parsed_text = self.schema_manager.parse_response(response_text=text, schema=schema, model=model)
+            # 스키마가 제공된 경우 스키마 매니저를 사용하여 응답 텍스트 파싱
+            if schema and text:
+                parsed_text = self.schema_manager.parse_content_to_json(response_text=text, schema=schema, model=model)
+            else:
+                parsed_text = text
 
             processed_results.append({
                 "metadata": metadata,
@@ -845,6 +879,6 @@ class LLMAPIClient:
             raise
     
     def get_token_usage_summary(self):
-        """Get a summary of token usage across all API calls"""
-        return self.token_counter.get_usage_summary()
+        """모든 API 호출에 대한 토큰 사용량 요약 가져오기"""
+        return self.token_counter.create_total_usage_summary()
     
