@@ -82,7 +82,7 @@ class SummarizeSubmissionManager(BaseWidgetManager):
             
             # Format prompt with submission
             prompt = self.template_component.get_formatted_prompt({
-                '학생 제출물': submission_text
+                '학생_제출물': submission_text
             })
             
             print("\n보고서 요약 중...")

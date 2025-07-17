@@ -480,7 +480,7 @@ class OpenAIAPI:
             
             # 완료될 때까지 대기
             if wait_for_completion and batch_info["status"] != "completed" and batch_info["status"] != "failed":
-                self.logger.info(f"OpenAI 배치 완료 대기 중: {batch_id}")
+                self.logger.info(f"OpenAI 배치 처리 대기 중: {batch_id}")
                 while batch_info["status"] not in ["completed", "failed", "cancelled", "expired"]:
                     time.sleep(poll_interval)
                     batch_info = self.get_batch_status(batch_id)
@@ -490,27 +490,24 @@ class OpenAIAPI:
             
             # 배치 처리가 완료되지 않은 경우 알림
             if batch_info["status"] == "in_progress":
-                self.logger.warning(f"OpenAI 배치가 아직 완료되지 않음: {batch_id}, 현재 상태: {batch_info['status']}")
-                return []
+                self.logger.warning(f"OpenAI 배치 처리가 아직 완료되지 않음: {batch_id}, 현재 상태: {batch_info['status']}")
+                return ''
                 
             # 실패한 경우 오류 메시지 로깅
             if batch_info["status"] == "failed":
                 self.logger.error(f"OpenAI 배치 처리 실패: {batch_id}, 오류: {batch_info['error']}")
-                return []
+                return ''
                 
             # 취소되거나 만료된 경우 알림
             if batch_info["status"] in ["cancelled", "expired"]:
-                self.logger.warning(f"OpenAI 배치 처리 {batch_info['status']}: {batch_id}")
-                return []
-                
-            # 결과 데이터 가져오기
-            self.logger.info(f"OpenAI 배치 결과 다운로드 중: {batch_id}")
+                self.logger.warning(f"OpenAI 배치 {batch_info['status']}: {batch_id}")
+                return ''
 
             # 배치 결과는 jsonl 형식 파일로 저장되며, FILES API를 통해 접근함
             output_file_id = batch_info['output_file_id']
             if not output_file_id:
                 self.logger.error(f"OpenAI 배치 결과 파일이 없습니다: {batch_id}")
-                return []
+                return ''
             
             # 결과 파일 다운로드
             output_file = self.client.files.content(output_file_id)
@@ -526,7 +523,7 @@ class OpenAIAPI:
             return output_file.text
             
         except Exception as e:
-            self.logger.error(f"OpenAI 배치 결과 조회 실패: {batch_id}, 오류: {str(e)}")
+            self.logger.error(f"OpenAI 배치 결과 불러오기 실패: {batch_id}, 오류: {str(e)}")
             raise
 
     def process_batch_results(self, batch_id: str, model: str, output_file_text: str) -> Dict[str, Any]:
@@ -579,77 +576,77 @@ class OpenAIAPI:
             self.logger.error(f"OpenAI 배치 결과 처리 실패: {batch_id}, 오류: {str(e)}")
             raise
             
-    def batch_process(
-        self, 
-        prompts: List[str], 
-        model: str = "gpt-4.1-nano-2025-04-14",
-        temperature: float = 0.2,
-        max_tokens: int = 2048,
-        system_instruction: Optional[str] = None,
-        response_schema: Optional[Dict[str, Any]] = None,
-        custom_ids: Optional[List[str]] = None,
-        wait_for_completion: bool = True,
-        poll_interval: int = 60
-    ) -> Tuple[str, Dict[str, Any]]:
-        """
-        다수의 프롬프트를 일괄 처리하고 선택적으로 결과를 대기합니다.
+    # def batch_process(
+    #     self, 
+    #     prompts: List[str], 
+    #     model: str = "gpt-4.1-nano-2025-04-14",
+    #     temperature: float = 0.2,
+    #     max_tokens: int = 2048,
+    #     system_instruction: Optional[str] = None,
+    #     response_schema: Optional[Dict[str, Any]] = None,
+    #     custom_ids: Optional[List[str]] = None,
+    #     wait_for_completion: bool = True,
+    #     poll_interval: int = 60
+    # ) -> Tuple[str, Dict[str, Any]]:
+    #     """
+    #     다수의 프롬프트를 일괄 처리하고 선택적으로 결과를 대기합니다.
 
-        Args:
-            prompts (List[str]): 처리할 사용자 프롬프트 목록
-            model (str): 사용할 모델 이름
-            temperature (float): 생성 다양성 제어
-            max_tokens (int): 최대 토큰 수
-            system_instruction (str, optional): 모든 요청에 공통으로 적용할 시스템 지시사항
-            response_schema (dict, optional): 응답 스키마
-            custom_ids (List[str], optional): 각 요청에 대한 사용자 정의 ID 목록. 제공되지 않으면 자동 생성됨.
-            wait_for_completion (bool): 배치 처리 완료까지 대기할지 여부
-            poll_interval (int): 대기 중 폴링 간격(초)
+    #     Args:
+    #         prompts (List[str]): 처리할 사용자 프롬프트 목록
+    #         model (str): 사용할 모델 이름
+    #         temperature (float): 생성 다양성 제어
+    #         max_tokens (int): 최대 토큰 수
+    #         system_instruction (str, optional): 모든 요청에 공통으로 적용할 시스템 지시사항
+    #         response_schema (dict, optional): 응답 스키마
+    #         custom_ids (List[str], optional): 각 요청에 대한 사용자 정의 ID 목록. 제공되지 않으면 자동 생성됨.
+    #         wait_for_completion (bool): 배치 처리 완료까지 대기할지 여부
+    #         poll_interval (int): 대기 중 폴링 간격(초)
 
-        Returns:
-            Tuple[str, List[Dict[str, Any]]]:
-                - str: 생성된 배치 요청의 ID
-                - List[Dict[str, Any]]: 각 요청에 대한 처리된 결과들의 목록
-        """
-        try:
-            # 배치 요청 생성
-            batch_response = self.create_batch_request(
-                prompts=prompts,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                system_instruction=system_instruction,
-                response_schema=response_schema,
-                custom_ids=custom_ids
-            )
+    #     Returns:
+    #         Tuple[str, List[Dict[str, Any]]]:
+    #             - str: 생성된 배치 요청의 ID
+    #             - List[Dict[str, Any]]: 각 요청에 대한 처리된 결과들의 목록
+    #     """
+    #     try:
+    #         # 배치 요청 생성
+    #         batch_response = self.create_batch_request(
+    #             prompts=prompts,
+    #             model=model,
+    #             temperature=temperature,
+    #             max_tokens=max_tokens,
+    #             system_instruction=system_instruction,
+    #             response_schema=response_schema,
+    #             custom_ids=custom_ids
+    #         )
             
-            batch_id = batch_response.id
+    #         batch_id = batch_response.id
             
-            # 완료를 기다리지 않는 경우 배치 ID만 반환
-            if not wait_for_completion:
-                return batch_id, {}
+    #         # 완료를 기다리지 않는 경우 배치 ID만 반환
+    #         if not wait_for_completion:
+    #             return batch_id, {}
             
-            # 결과가 준비될 때까지 대기
-            self.logger.info(f"OpenAI 배치 결과 대기 중: {batch_id}")
-            responses = self.get_batch_results(
-                batch_id=batch_id,
-                wait_for_completion=wait_for_completion,
-                poll_interval=poll_interval
-            )
+    #         # 결과가 준비될 때까지 대기
+    #         self.logger.info(f"OpenAI 배치 결과 대기 중: {batch_id}")
+    #         responses = self.get_batch_results(
+    #             batch_id=batch_id,
+    #             wait_for_completion=wait_for_completion,
+    #             poll_interval=poll_interval
+    #         )
             
-            # 결과 처리
-            results = self.process_batch_results(batch_id, model, responses)
+    #         # 결과 처리
+    #         results = self.process_batch_results(batch_id, model, responses)
 
-            # 임시 파일 삭제
-            temp_dir = os.path.join(PROJECT_ROOT, 'temp')
-            output_file_path = os.path.join(temp_dir, f"openai_batch_output_{batch_id}.jsonl")
-            if os.path.exists(output_file_path):
-                os.remove(output_file_path)
-                self.logger.info(f"OpenAI 배치 결과 임시파일 삭제 완료: {output_file_path}")
-            else:
-                self.logger.warning(f"OpenAI 배치 결과 임시파일이 존재하지 않음: {output_file_path}")
+    #         # 임시 파일 삭제
+    #         temp_dir = os.path.join(PROJECT_ROOT, 'temp')
+    #         output_file_path = os.path.join(temp_dir, f"openai_batch_output_{batch_id}.jsonl")
+    #         if os.path.exists(output_file_path):
+    #             os.remove(output_file_path)
+    #             self.logger.info(f"OpenAI 배치 결과 임시파일 삭제 완료: {output_file_path}")
+    #         else:
+    #             self.logger.warning(f"OpenAI 배치 결과 임시파일이 존재하지 않음: {output_file_path}")
             
-            return batch_id, results
+    #         return batch_id, results
             
-        except Exception as e:
-            self.logger.error(f"OpenAI 배치 요청 실패: {str(e)}")
-            raise
+    #     except Exception as e:
+    #         self.logger.error(f"OpenAI 배치 요청 실패: {str(e)}")
+    #         raise

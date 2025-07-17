@@ -178,7 +178,7 @@ DEFAULT_PROMPT_SUMMARIZE = """
 출력은 **JSON 형식**으로 하되, 모든 문장은 '-음', '-임' 형태로 마무리할 것.
 
 학생 제출 과제물:
-{학생 제출물}
+{학생_제출물}
 """
 
 # Schema definitions
@@ -316,36 +316,31 @@ EVALUATION_SCHEMA_V2 = {
 SUMMARIZE_SCHEMA = {
     "type": "object",
     "properties": {
-        "탐구_주제_선정_동기": {
+        "summary":{
             "type": "object",
             "properties": {
-                "요약": {"type": "string", "nullable": True}
+                "탐구_주제_선정_동기": {
+                    "type": "string",
+                    "nullable": True
+                },
+                "탐구_과정": {
+                    "type": "string",
+                    "nullable": True
+                },
+                "탐구_과정에서_배우고_느낀_점": {
+                    "type": "string",
+                    "nullable": True
+                },
+                "탐구_이후의_방향성": {
+                    "type": "string",
+                    "nullable": True
+                }
             },
-            "required": ["요약"]
-        },
-        "탐구_과정": {
-            "type": "object",
-            "properties": {
-                "요약": {"type": "string", "nullable": True}
-            },
-            "required": ["요약"]
-        },
-        "탐구_과정에서_배우고_느낀_점": {
-            "type": "object",
-            "properties": {
-                "요약": {"type": "string", "nullable": True}
-            },
-            "required": ["요약"]
-        },
-        "탐구_이후의_방향성": {
-            "type": "object",
-            "properties": {
-                "요약": {"type": "string", "nullable": True}
-            },
-            "required": ["요약"]
+            "required": [
+                "탐구_주제_선정_동기", "탐구_과정", "탐구_과정에서_배우고_느낀_점", "탐구_이후의_방향성"
+            ]
         }
+        
     },
-    "required": [
-        "탐구_주제_선정_동기", "탐구_과정", "탐구_과정에서_배우고_느낀_점", "탐구_이후의_방향성"
-    ]
+    "required": ["summary"]
 }

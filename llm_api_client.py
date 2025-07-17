@@ -209,8 +209,8 @@ class LLMAPIClient:
                 })
         
         return responses
-    
-    async def batch_process_prompts(
+
+    async def generate_batch_batch_dict(
         self,
         prompts: List[str],
         models: List[str],
@@ -224,6 +224,7 @@ class LLMAPIClient:
     ) -> Dict[str, Any]:
         """
         Process multiple prompts with multiple models using batch processing.
+        The same prompts will be sent to each model in parallel.
         
         Args:
             prompts: List of prompts to process
@@ -232,7 +233,7 @@ class LLMAPIClient:
             max_tokens: Maximum tokens in response
             system_instruction: Optional system instruction
             response_schema: Optional response schema
-            custom_ids: Optional custom IDs for batch requests
+            custom_ids: Optional custom IDs for batch batch_dict
             wait_for_completion: Whether to wait for batch completion
             poll_interval: Polling interval for batch status checks
             
@@ -251,16 +252,14 @@ class LLMAPIClient:
             if provider == "Anthropic":
                 task = loop.run_in_executor(
                     self.executor,
-                    lambda m=model: self.anthropic.batch_process(
+                    lambda m=model: self.anthropic.create_batch_request(
                         prompts=prompts,
                         model=m,
                         temperature=temperature,
                         max_tokens=max_tokens,
                         system_instruction=system_instruction,
                         response_schema=response_schema,
-                        custom_ids=custom_ids,
-                        wait_for_completion=wait_for_completion,
-                        poll_interval=poll_interval
+                        custom_ids=custom_ids
                     )
                 )
                 tasks.append((model, task))
@@ -268,16 +267,14 @@ class LLMAPIClient:
             elif provider == "OpenAI":
                 task = loop.run_in_executor(
                     self.executor,
-                    lambda m=model: self.openai.batch_process(
+                    lambda m=model: self.openai.create_batch_request(
                         prompts=prompts,
                         model=m,
                         temperature=temperature,
                         max_tokens=max_tokens,
                         system_instruction=system_instruction,
                         response_schema=response_schema,
-                        custom_ids=custom_ids,
-                        wait_for_completion=wait_for_completion,
-                        poll_interval=poll_interval
+                        custom_ids=custom_ids
                     )
                 )
                 tasks.append((model, task))
@@ -287,43 +284,51 @@ class LLMAPIClient:
                 continue
         
         # Gather results
-        results = {}
+        batch_dict = {}
         for model, task in tasks:
             try:
-                batch_id, batch_results = await task
-                results[model] = {
-                    "batch_id": batch_id,
-                    "results": batch_results
+                batch_request = await task
+                batch_id = batch_request.id
+                batch_dict[batch_id] = {
+                    "model": model,
+                    "timestamp": datetime.now().isoformat(),
+                    "custom_ids": custom_ids
                 }
             except Exception as e:
                 self.logger.error(f"Error batch processing with model {model}: {str(e)}")
-                results[model] = {"error": str(e)}
+                batch_dict[batch_id] = {
+                    "model": model,
+                    "timestamp": datetime.now().isoformat(),
+                    "custom_ids": custom_ids,
+                    "error": str(e)
+                }
         
-        return results
+        return batch_dict
 
     async def check_batch_status(
         self,
         batch_dict: Dict[str, Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Dict[str, Any]]:
         """
-        Check the status of multiple batch requests.
+        Check the status of multiple batch batch_dict.
         
         Args:
-            batch_dict: Dictionary mapping model names to batch information
-                       Format: {'model_name': {'batch_id': 'batch_id', 'results': {}}}
+            batch_dict: Dictionary mapping batch id to batch information
+                       Format: {'batch_id': {'model': 'model_name', 'timestamp': 'timestamp', etc.}}
             
         Returns:
-            Dictionary mapping model names to their batch status information
+            Dictionary mapping batch id to their status information
+            Format: {'batch_id': {'status': 'status_info', 'model': 'model', etc.}}
         """
         tasks = []
         loop = asyncio.get_event_loop()
         
-        for model, batch_info in batch_dict.items():
+        for batch_id, batch_info in batch_dict.items():
             if 'batch_id' not in batch_info:
                 self.logger.error(f"No batch_id found for model {model}")
                 continue
                 
-            batch_id = batch_info['batch_id']
+            model = batch_info.get('model', None)
             provider = self._get_provider_for_model(model)
             
             if not provider:
@@ -333,60 +338,53 @@ class LLMAPIClient:
             if provider == "Anthropic":
                 task = loop.run_in_executor(
                     self.executor,
-                    lambda m=model, bid=batch_id: {
-                        'model': m,
-                        'status': self.anthropic.get_batch_status(bid)
-                    }
+                    lambda bid=batch_id: self.anthropic.get_batch_status(bid)
                 )
-                tasks.append(task)
+                tasks.append(batch_id, task)
                 
             elif provider == "OpenAI":
                 task = loop.run_in_executor(
                     self.executor,
-                    lambda m=model, bid=batch_id: {
-                        'model': m,
-                        'status': self.openai.get_batch_status(bid)
-                    }
+                    lambda bid=batch_id: self.openai.get_batch_status(bid)
                 )
-                tasks.append(task)
+                tasks.append(batch_id, task)
         
-        # Gather results
-        status_results = {}
-        for task in tasks:
+
+        for batch_id, task in tasks:
             try:
-                result = await task
-                model = result['model']
-                status = result['status']
-                status_results[model] = status
+                status = await task
+                batch_dict[batch_id]['status'] = status
                 
-                # Log status information
-                if model in MODEL_DICT['Anthropic']['supported_models']:
-                    processing_status = status.get('processing_status', 'unknown')
-                    request_counts = status.get('request_counts', {})
-                    self.logger.info(
-                        f"Anthropic batch {status['id']} (model: {model}) - "
-                        f"Status: {processing_status}, "
-                        f"Succeeded: {getattr(request_counts, 'succeeded', 0)}, "
-                        f"Errored: {getattr(request_counts, 'errored', 0)}, "
-                        f"Processing: {getattr(request_counts, 'processing', 0)}"
-                    )
-                elif model in MODEL_DICT['OpenAI']['supported_models']:
-                    batch_status = status.get('status', 'unknown')
-                    completed_count = status.get('completed_count', 0)
-                    failed_count = status.get('failed_count', 0)
-                    total_requests = status.get('total_requests', 0)
-                    self.logger.info(
-                        f"OpenAI batch {status['id']} (model: {model}) - "
-                        f"Status: {batch_status}, "
-                        f"Completed: {completed_count}/{total_requests}, "
-                        f"Failed: {failed_count}"
-                    )
+                # # Log status information
+                # if model in MODEL_DICT['Anthropic']['supported_models']:
+                #     processing_status = status.get('processing_status', 'unknown')
+                #     request_counts = status.get('request_counts', {})
+                #     self.logger.info(
+                #         f"Anthropic batch {status['id']} (model: {model}) - "
+                #         f"Status: {processing_status}, "
+                #         f"Succeeded: {getattr(request_counts, 'succeeded', 0)}, "
+                #         f"Errored: {getattr(request_counts, 'errored', 0)}, "
+                #         f"Processing: {getattr(request_counts, 'processing', 0)}"
+                #     )
+                # elif model in MODEL_DICT['OpenAI']['supported_models']:
+                #     batch_status = status.get('status', 'unknown')
+                #     completed_count = status.get('completed_count', 0)
+                #     failed_count = status.get('failed_count', 0)
+                #     total_batch_dict = status.get('total_batch_dict', 0)
+                #     self.logger.info(
+                #         f"OpenAI batch {status['id']} (model: {model}) - "
+                #         f"Status: {batch_status}, "
+                #         f"Completed: {completed_count}/{total_batch_dict}, "
+                #         f"Failed: {failed_count}"
+                #     )
                     
             except Exception as e:
                 self.logger.error(f"Error checking batch status for model {model}: {str(e)}")
-                status_results[model] = {"error": str(e)}
+                batch_dict[batch_id]['status'] = {
+                    'error': str(e)
+                }
         
-        return status_results
+        return batch_dict
 
     async def retrieve_batch_results(
         self,
@@ -395,25 +393,22 @@ class LLMAPIClient:
         poll_interval: int = 60
     ) -> Dict[str, Any]:
         """
-        Retrieve results for completed batch requests.
+        Retrieve results for completed batch batch_dict.
         
         Args:
-            batch_dict: Dictionary mapping model names to batch information
+            batch_dict: Dictionary mapping batch id to batch information
+                          Format: {'batch_id': {'model': 'model_name', 'status': 'status', etc.}}
             wait_for_completion: Whether to wait for batch completion
             poll_interval: Polling interval for batch status checks
             
         Returns:
-            Dictionary mapping model names to their batch results
+            Dictionary mapping batch id to their results
         """
         tasks = []
         loop = asyncio.get_event_loop()
         
-        for model, batch_info in batch_dict.items():
-            if 'batch_id' not in batch_info:
-                self.logger.error(f"No batch_id found for model {model}")
-                continue
-                
-            batch_id = batch_info['batch_id']
+        for batch_id, batch_info in batch_dict.items():
+            model = batch_info.get('model', None)
             provider = self._get_provider_for_model(model)
             
             if not provider:
@@ -423,30 +418,23 @@ class LLMAPIClient:
             if provider == "Anthropic":
                 task = loop.run_in_executor(
                     self.executor,
-                    lambda m=model, bid=batch_id: {
-                        'model': m,
-                        'batch_id': bid,
-                        'results': self.anthropic.get_batch_results(
-                            batch_id=bid,
-                            wait_for_completion=wait_for_completion,
-                            poll_interval=poll_interval
-                        )
-                    }
+                    lambda bid=batch_id: self.anthropic.get_batch_results(
+                        batch_id=bid,
+                        wait_for_completion=wait_for_completion,
+                        poll_interval=poll_interval
+                    )
                 )
+
                 tasks.append(task)
                 
             elif provider == "OpenAI":
                 task = loop.run_in_executor(
                     self.executor,
-                    lambda m=model, bid=batch_id: {
-                        'model': m,
-                        'batch_id': bid,
-                        'results': self.openai.get_batch_results(
-                            batch_id=bid,
-                            wait_for_completion=wait_for_completion,
-                            poll_interval=poll_interval
-                        )
-                    }
+                    lambda bid=batch_id: self.openai.get_batch_results(
+                        batch_id=bid,
+                        wait_for_completion=wait_for_completion,
+                        poll_interval=poll_interval
+                    )
                 )
                 tasks.append(task)
         

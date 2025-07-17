@@ -205,8 +205,7 @@ class LlmCallManager(BaseWidgetManager):
         results = widgets.VBox([
             widgets.HTML("<h3>결과 보기</h3>"),
             self.output_component.create_layout(),
-            self.output_area,
-            self.error_area
+            self.output_area
         ])
         
         # Tab 3: 로그 및 토큰
@@ -214,7 +213,9 @@ class LlmCallManager(BaseWidgetManager):
             widgets.HTML("<h3>시스템 로그</h3>"),
             self.log_output,
             widgets.HTML("<h3>토큰 사용량</h3>"),
-            self.output_component.token_usage_output
+            self.output_component.token_usage_output,
+            widgets.HTML("<h3>오류 메시지</h3>"),
+            self.error_area
         ])
         
         # Set tab contents

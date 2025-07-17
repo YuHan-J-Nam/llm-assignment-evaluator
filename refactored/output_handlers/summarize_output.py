@@ -29,9 +29,9 @@ class SummarizeOutputComponent(BaseOutputComponent):
                 try:
                     # Parse JSON result
                     if isinstance(result_text, str):
-                        result = json.loads(result_text)
+                        result = json.loads(result_text)['summary']
                     else:
-                        result = result_text
+                        result = result_text['summary']
                     
                     # Display formatted result
                     html_output = f"<h2>{model_name} 보고서 요약</h2>"
@@ -48,7 +48,7 @@ class SummarizeOutputComponent(BaseOutputComponent):
                     for key, title in summary_categories:
                         if key in result:
                             html_output += f"<h3 style='color: #333; margin-top: 20px;'>{title}</h3>"
-                            summary_content = result[key].get('요약', '')
+                            summary_content = result[key]
                             
                             if summary_content and summary_content.lower() != 'null':
                                 html_output += f"<p style='background-color: #f9f9f9; padding: 10px; border-left: 4px solid #007acc; margin: 5px 0;'>{summary_content}</p>"
